@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>种族争霸 Demo - War Clash Clone</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="game-container"></div>
+
+    <!-- 顶部资源栏 -->
+    <div id="topbar" class="hud">
+      <div class="res-group">
+        <span class="res res-gold"><i class="dot gold"></i><b id="res-gold">0</b></span>
+        <span class="res res-crystal"><i class="dot crystal"></i><b id="res-crystal">0</b></span>
+        <span class="res res-supply"><b id="res-supply">0/0</b></span>
+        <span class="res res-time" id="res-time">00:00</span>
+      </div>
+      <div class="tips">左键选择 / 框选 · 右键指令 · A 攻击移动 · T 回城 · R 侦查 · G 集合 · F 集火 · Ctrl+数字 编队 · 空格 回主基地 · B 建造</div>
+    </div>
+
+    <!-- 底部面板：小地图 / 信息 / 指令卡 -->
+    <div id="bottombar" class="hud">
+      <div id="minimap-box"><canvas id="minimap" width="180" height="180"></canvas></div>
+      <div id="info-panel"></div>
+      <div id="command-card"></div>
+    </div>
+
+    <div id="message-log"></div>
+
+    <!-- 胜负界面 -->
+    <div id="overlay" class="hidden">
+      <div class="overlay-card">
+        <h1 id="overlay-title"></h1>
+        <p id="overlay-sub"></p>
+        <button id="overlay-restart">再来一局</button>
+      </div>
+    </div>
+
+    <div id="loading">加载中…</div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
