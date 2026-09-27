@@ -52,8 +52,8 @@ export class Lobby {
     this.step = 'race';
     this.root.innerHTML = `
       <div class="lobby-card">
-        <h1>种族争霸</h1>
-        <p class="lobby-sub">War Clash 复刻版 · 选择你的种族</p>
+        <h1>第一滴血</h1>
+        <p class="lobby-sub">First Blood · 选择你的种族</p>
         <div class="race-row">
           ${RACES.map(r => `
             <div class="race-card ${r.playable ? '' : 'locked'}" data-race="${r.id}">

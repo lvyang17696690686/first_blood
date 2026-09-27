@@ -225,7 +225,7 @@ export class UI {
 
   private renderInfo(sel: Entity[]) {
     if (sel.length === 0) {
-      this.elInfo.innerHTML = `<h3>种族争霸 Demo</h3>
+      this.elInfo.innerHTML = `<h3>第一滴血</h3>
         <div class="sub">精灵族 · 单机对抗 AI</div>
         <div class="row">目标：摧毁敌方生命古树。小心野怪营地，击杀可获得金币与原石。</div>
         <div class="row">流程：工匠采金 → 树屋/战争古树 → 升级2本 → 智慧古树 → 高级兵与英雄。</div>`;
