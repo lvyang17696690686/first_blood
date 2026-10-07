@@ -7,6 +7,9 @@ import { AIController } from './ai';
 import { Lobby } from './lobby';
 import type { Deck, Race } from './types';
 
+/** P4：AI 随机可用种族 */
+const AI_RACES: Race[] = ['elf', 'blood', 'undead'];
+
 async function startGame(playerDeck: Deck, playerRace: Race) {
   const loading = document.getElementById('loading');
   if (loading) loading.classList.remove('hidden');
@@ -14,7 +17,7 @@ async function startGame(playerDeck: Deck, playerRace: Race) {
 
   const game = new Game({
     decks: [playerDeck, null], // AI 卡组由 AIController 随机生成
-    races: [playerRace, 'elf'], // P3：玩家选族，AI 精灵
+    races: [playerRace, AI_RACES[Math.floor(Math.random() * AI_RACES.length)]], // P4：AI 随机种族
   });
   const start = game.map.startPositions[0];
   const camera = new Camera(start.x, start.y + 80);

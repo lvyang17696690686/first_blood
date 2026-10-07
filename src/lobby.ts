@@ -1,6 +1,7 @@
 import {
   DECK_UNIT_POOL, DECK_HERO_POOL, DECK_UNITS, DECK_HEROES, UNITS,
   DECK_UNIT_POOL_BLOOD, DECK_HERO_POOL_BLOOD,
+  DECK_UNIT_POOL_UNDEAD, DECK_HERO_POOL_UNDEAD,
 } from './config';
 import type { Deck, Race } from './types';
 
@@ -23,7 +24,7 @@ function saveStored(d: StoredDecks) {
 const RACES = [
   { id: 'elf', name: '精灵族', desc: '夜精灵军团：灵活多变，英雄全能。', playable: true },
   { id: 'blood', name: '血兽族', desc: '嗜血野兽军团：反伤、冲锋与灵魂操控，前期压制。', playable: true },
-  { id: 'undead', name: '亡灵族', desc: '不死亡灵军团，爆量消耗（开发中）。', playable: false },
+  { id: 'undead', name: '亡灵族', desc: '不死亡灵军团：廉价海量、自爆、瘟疫与亡者复苏。', playable: true },
 ] as const;
 
 /** 出战卡组界面：主界面 → 选族 → 选卡 → 开战 */
@@ -77,8 +78,10 @@ export class Lobby {
     this.step = 'deck';
     const isBlood = this.race === 'blood';
     const raceName = RACES.find(r => r.id === this.race)?.name ?? '精灵族';
-    const unitPool = isBlood ? DECK_UNIT_POOL_BLOOD : DECK_UNIT_POOL;
-    const heroPool = isBlood ? DECK_HERO_POOL_BLOOD : DECK_HERO_POOL;
+    const unitPool = isBlood ? DECK_UNIT_POOL_BLOOD
+      : this.race === 'undead' ? DECK_UNIT_POOL_UNDEAD : DECK_UNIT_POOL;
+    const heroPool = isBlood ? DECK_HERO_POOL_BLOOD
+      : this.race === 'undead' ? DECK_HERO_POOL_UNDEAD : DECK_HERO_POOL;
     this.root.innerHTML = `
       <div class="lobby-card wide">
         <h1>组建出战卡组</h1>
@@ -117,8 +120,10 @@ export class Lobby {
       const d = stored[select.value];
       if (!d) return;
       // 只保留当前种族卡池内的卡（模板可能来自其他种族）
-      const pool = isBlood ? DECK_UNIT_POOL_BLOOD : DECK_UNIT_POOL;
-      const hp = isBlood ? DECK_HERO_POOL_BLOOD : DECK_HERO_POOL;
+      const pool = isBlood ? DECK_UNIT_POOL_BLOOD
+        : this.race === 'undead' ? DECK_UNIT_POOL_UNDEAD : DECK_UNIT_POOL;
+      const hp = isBlood ? DECK_HERO_POOL_BLOOD
+        : this.race === 'undead' ? DECK_HERO_POOL_UNDEAD : DECK_HERO_POOL;
       this.selectedUnits = new Set(d.units.filter(id => pool.includes(id as never)));
       this.selectedHeroes = new Set(d.heroes.filter(id => hp.includes(id as never)));
       this.refreshDeckUi();

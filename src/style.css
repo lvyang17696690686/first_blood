@@ -304,7 +304,7 @@ html, body {
 .race-icon { width: 46px; height: 46px; margin: 0 auto; border-radius: 10px; }
 .race-elf { background: radial-gradient(circle at 35% 30%, #8fe0a8, #2e7a4a); }
 .race-blood { background: radial-gradient(circle at 35% 30%, #e08a8a, #8a2e2e); }
-.race-undead { background: radial-gradient(circle at 35% 30%, #b0b8d0, #3a3f55); }
+.race-undead { background: radial-gradient(circle at 35% 30%, #b09ae0, #3a2e6a); }
 .soon {
   display: inline-block;
   margin-top: 8px;

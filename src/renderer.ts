@@ -1,5 +1,5 @@
 import { Application, Container, Graphics } from 'pixi.js';
-import { TILE, FACTION_COLORS, BUILDINGS } from './config';
+import { TILE, FACTION_COLORS, BUILDINGS, UNITS } from './config';
 import type { Game } from './game';
 import { Unit, Building } from './entities';
 import { Camera } from './input';
@@ -145,6 +145,16 @@ export class Renderer {
     const g = this.entityGfx;
     g.clear();
     const game = this.game;
+
+    // P4：尸体（亡灵复苏素材，随时间渐隐）
+    for (const c of game.corpses) {
+      const a = Math.min(1, c.timer / 5);
+      const def = UNITS[c.defId];
+      const r = def ? def.radius * 0.8 : 6;
+      g.ellipse(c.x, c.y, r, r * 0.5).fill({ color: 0x3d3f47, alpha: 0.55 * a });
+      g.rect(c.x - 1.5, c.y - r, 3, r).fill({ color: 0x8d8f99, alpha: 0.85 * a });
+      g.rect(c.x - r * 0.5, c.y - r * 0.6, r, 3).fill({ color: 0x8d8f99, alpha: 0.85 * a });
+    }
 
     // 建筑
     for (const b of game.buildings) {

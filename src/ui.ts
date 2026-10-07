@@ -1,6 +1,6 @@
 import {
   TILE, FACTION_COLORS, BUILDINGS, UNITS, TECH_UPGRADES, POP_CAP,
-  UNIT_TECH_MAX, HERO_SKILL_MAX, BUILD_MENU, BUILD_MENU_BLOOD,
+  UNIT_TECH_MAX, HERO_SKILL_MAX, BUILD_MENU, BUILD_MENU_BLOOD, BUILD_MENU_UNDEAD,
 } from './config';
 import type { Game } from './game';
 import { Unit, Building } from './entities';
@@ -21,6 +21,12 @@ const HOTKEYS: Record<string, string> = {
   axethrower: 'A', crushercart: 'S', firewitch: 'D',
   dragoon: 'Q', shaman: 'W', chainknight: 'E', lavabeast: 'R', cyclops: 'T',
   brade: 'Q', syl: 'W', dukun: 'E', kada: 'R',
+  // P4 亡灵族
+  graveyard: 'Q', boneyard: 'W', wellspring: 'E', cursetemple: 'R', ghosttower: 'T',
+  ghoul: 'Q', skelpioneer: 'Q', bonearcher: 'W', demonmage: 'E', demonguard: 'R', plaguecart: 'T',
+  bonequeen: 'A', succubus: 'S', zombiegiant: 'D',
+  devourer: 'Q', ghosttongue: 'W', skeletonlord: 'E',
+  pope: 'Q', necromancer: 'W', demonlord: 'E', deathgod: 'R',
 };
 
 export class UI {
@@ -381,7 +387,8 @@ export class UI {
 
     if (hasWorker && this.buildTab) {
       // 建造菜单（按种族显示，P3）
-      const menu = game.races[0] === 'blood' ? BUILD_MENU_BLOOD : BUILD_MENU;
+      const menu = game.races[0] === 'blood' ? BUILD_MENU_BLOOD
+        : game.races[0] === 'undead' ? BUILD_MENU_UNDEAD : BUILD_MENU;
       for (const bid of menu) {
         const def = BUILDINGS[bid];
         const needTier = def.tier > game.factions[0].tech;

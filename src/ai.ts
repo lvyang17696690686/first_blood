@@ -1,5 +1,6 @@
 import { TILE, BUILDINGS, UNITS, DECK_UNIT_POOL, DECK_HERO_POOL, DECK_HEROES,
   DECK_UNIT_POOL_BLOOD, DECK_HERO_POOL_BLOOD,
+  DECK_UNIT_POOL_UNDEAD, DECK_HERO_POOL_UNDEAD,
   UNIT_TECH_MAX, HERO_SKILL_MAX, RACE_BUILDINGS, RACE_WORKER } from './config';
 import type { Game } from './game';
 import type { Deck, Faction } from './types';
@@ -32,6 +33,19 @@ export function randomBloodDeck(): Deck {
   };
 }
 
+/** P4：随机生成一张亡灵族卡组（AI 用）：保底骷髅先锋 + 埋骨地池 3 + 诅咒神殿池 2 + 英雄 3 */
+export function randomUndeadDeck(): Deck {
+  const pick = <T>(arr: readonly T[], n: number): T[] =>
+    arr.slice().sort(() => Math.random() - 0.5).slice(0, n);
+  const boneyardUnits = DECK_UNIT_POOL_UNDEAD.slice(0, 9);    // 埋骨地系
+  const templeUnits = DECK_UNIT_POOL_UNDEAD.slice(9);         // 诅咒神殿系
+  // 保底 1 本单位，避免 AI 前期无兵可出
+  return {
+    units: ['skelpioneer', ...pick(boneyardUnits.filter(u => u !== 'skelpioneer'), 3), ...pick(templeUnits, 2)],
+    heroes: pick(DECK_HERO_POOL_UNDEAD, DECK_HEROES),
+  };
+}
+
 /** 脚本化 AI：建造顺序 + 波次进攻 + 基地防守（P1：卡组感知 + 富余升级；P3：按种族建造/出兵） */
 export class AIController {
   game: Game;
@@ -47,7 +61,8 @@ export class AIController {
     this.game = game;
     this.faction = faction;
     const race = game.races[faction];
-    this.deck = game.decks[faction] ?? (race === 'blood' ? randomBloodDeck() : randomElfDeck());
+    this.deck = game.decks[faction] ??
+      (race === 'blood' ? randomBloodDeck() : race === 'undead' ? randomUndeadDeck() : randomElfDeck());
     game.decks[faction] = this.deck;
   }
 
@@ -243,8 +258,9 @@ export class AIController {
     }
 
     const foeArmy = g.units.filter(u => !u.dead && u.faction === this.enemy && u.def.kind !== 'worker').length;
-    const blood = g.races[this.faction] === 'blood';
-    const base = blood ? Math.min(8 + this.wave * 3, 18) : Math.min(8 + this.wave * 4, 22);
+    // 血兽/亡灵走海量快攻节奏，精灵走质量爬升节奏
+    const swarm = g.races[this.faction] !== 'elf';
+    const base = swarm ? Math.min(8 + this.wave * 3, 18) : Math.min(8 + this.wave * 4, 22);
     // 只打有兵力优势的仗（+3 才值得进攻：防守方有塔与满编优势），避免小波次白给
     const threshold = allIn ? 0 : Math.max(base, foeArmy + 3);
     if (!this.attacking && army.length >= threshold) {
