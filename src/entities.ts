@@ -25,6 +25,9 @@ export abstract class Entity {
   selected = false;
   /** 渲染用受击闪烁 */
   hitFlash = 0;
+  // P4 诅咒降甲（亡魂巫师等攻击附加）
+  armorCurseTimer = 0;
+  armorCurseAmt = 0;
 
   constructor(faction: Faction, hp: number, armor: number) {
     this.faction = faction;
@@ -121,6 +124,14 @@ export class Unit extends Entity {
   chargeStatic = 0;        // 冲锋：静止计时
   chargePrimed = false;    // 冲锋首击就绪
   charmedTimer = 0;        // 灵魂操控剩余时间
+  // ---- P4 亡灵状态 ----
+  plagueTimer = 0;         // 瘟疫剩余时间
+  plagueDps = 0;           // 瘟疫每秒伤害
+  plagueSrcId = 0;         // 瘟疫来源（击杀归属）
+  fearTimer = 0;           // 恐惧剩余时间（失控乱窜）
+  private fearDir = 0;
+  private fearDirTimer = 0;
+  exploded = false;        // 自爆已引爆标记（防二次引爆）
   originalFaction: Faction | null = null; // 灵魂操控原阵营
   private lastX = 0; private lastY = 0;   // 冲锋位移检测
 
@@ -277,6 +288,9 @@ export class Unit extends Entity {
           this.chargeStatic = 0;
         }
         const dmg = this.effDmg() * hitMult;
+        // P4 自爆：近战自爆单位进入射程即引爆，不进行普通攻击
+        const se = this.def.traits?.selfExplode;
+        if (se) { game.selfExplode(this, se.dmg, se.radius); return; }
         if (this.def.projectile) {
           game.spawnProjectile(this, target, dmg);
         } else {
@@ -342,6 +356,35 @@ export class Unit extends Entity {
       if (this.charmedTimer <= 0 && this.originalFaction !== null) {
         game.restoreCharm(this);
       }
+    }
+    // P4 诅咒降甲计时
+    if (this.armorCurseTimer > 0) {
+      this.armorCurseTimer = Math.max(0, this.armorCurseTimer - dt);
+      if (this.armorCurseTimer === 0) this.armorCurseAmt = 0;
+    }
+    // P4 瘟疫：每秒掉血，击杀归属瘟疫来源
+    if (this.plagueTimer > 0) {
+      this.plagueTimer = Math.max(0, this.plagueTimer - dt);
+      this.hp -= this.plagueDps * dt;
+      this.hitFlash = Math.max(this.hitFlash, 0.06);
+      if (this.hp <= 0) {
+        this.hp = 0;
+        const src = game.byId(this.plagueSrcId) ?? null;
+        game.killEntity(this, src && !src.dead ? src : null);
+        return;
+      }
+    }
+    // P4 恐惧：失控乱窜，不执行正常指令
+    if (this.fearTimer > 0) {
+      this.fearTimer = Math.max(0, this.fearTimer - dt);
+      this.fearDirTimer -= dt;
+      if (this.fearDirTimer <= 0) {
+        this.fearDir = Math.random() * Math.PI * 2;
+        this.fearDirTimer = 0.25;
+      }
+      const fs = this.moveSpeed * 0.7 * dt;
+      game.moveEntity(this, this.x + Math.cos(this.fearDir) * fs, this.y + Math.sin(this.fearDir) * fs);
+      return;
     }
     // P3 冲锋：静止计时（位移超阈值重置，静止累加；就绪后首击消耗）
     const moved = Math.abs(this.x - this.lastX) + Math.abs(this.y - this.lastY);

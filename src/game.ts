@@ -93,6 +93,8 @@ interface DotZone {
   timer: number;
   /** 伤害结算周期计时 */
   tick: number;
+  /** P4 沙暴：附带减速比例 */
+  slowAmt?: number;
   faction: Faction;
   heroId: number;
 }
@@ -165,6 +167,8 @@ export class Game {
   pendingStrikes: PendingStrike[] = [];
   /** P3 地面 DoT 区域 */
   dotZones: DotZone[] = [];
+  /** P4 尸体（供亡者复苏等技能消费，15 秒消散） */
+  corpses: { x: number; y: number; defId: string; faction: Faction; timer: number }[] = [];
   /** P2 魔法球 */
   orbs: MagicOrb[] = [];
   /** P2 侦查区域（短暂开雾） */
@@ -636,6 +640,23 @@ export class Game {
           target.slowTimer = Math.max(target.slowTimer, st.slow.dur);
           target.slowAmt = Math.max(target.slowAmt, st.slow.amount);
         }
+        // P4 瘟疫：命中附加持续伤害（溅射传播见 applySplash）
+        if (target instanceof Unit && st.plague) {
+          target.plagueTimer = Math.max(target.plagueTimer, st.plague.dur);
+          target.plagueDps = st.plague.dps;
+          target.plagueSrcId = source.id;
+        }
+        // P4 诅咒降甲：命中降低护甲
+        if (st.armorCurse) {
+          target.armorCurseTimer = Math.max(target.armorCurseTimer, st.armorCurse.dur);
+          target.armorCurseAmt = Math.max(target.armorCurseAmt, st.armorCurse.amt);
+        }
+        // P4 偷取增益：驱散目标正面增益，自身获得加速
+        if (st.stealBuffs && target instanceof Unit &&
+            (target.hasteTimer > 0 || target.frenzyTimer > 0 || target.rageTimer > 0 || target.shieldHp > 0)) {
+          target.hasteTimer = 0; target.frenzyTimer = 0; target.rageTimer = 0; target.shieldHp = 0;
+          source.hasteTimer = Math.max(source.hasteTimer, BUFF_DURATION);
+        }
       }
     }
     // 护盾优先吸收
@@ -646,7 +667,9 @@ export class Game {
       target.hitFlash = 0.12;
       if (dmg <= 0.001) return;
     }
-    const eff = Math.max(1, dmg - target.armor);
+    // P4 诅咒降甲：目标护甲临时降低后再结算
+    const effArmor = Math.max(0, target.armor - (target.armorCurseTimer > 0 ? target.armorCurseAmt : 0));
+    const eff = Math.max(1, dmg - effArmor);
     target.hp -= eff;
     target.hitFlash = 0.12;
     // 被打反击（打不到对方时不反击，避免地面近战被飞行单位无脑风筝）
@@ -684,8 +707,28 @@ export class Game {
       if (o instanceof Unit && o.flying) continue;
       o.hp -= Math.max(1, dmg * 0.5 - o.armor);
       o.hitFlash = 0.12;
+      // P4 瘟疫溅射传播
+      const sp = source instanceof Unit ? source.def.traits?.plague : undefined;
+      if (sp && o instanceof Unit && source) {
+        o.plagueTimer = Math.max(o.plagueTimer, sp.dur);
+        o.plagueDps = sp.dps;
+        o.plagueSrcId = source.id;
+      }
       if (o.hp <= 0) this.killEntity(o, source);
     }
+  }
+
+  /** P4 自爆：对半径内敌人造成伤害后自毁（防二次引爆） */
+  selfExplode(u: Unit, dmg: number, radius: number) {
+    u.exploded = true;
+    this.effects.push({ type: 'ring', x: u.x, y: u.y, radius, life: 0.4, maxLife: 0.4, color: 0xffaa33 });
+    this.spatial.queryCircle(u.x, u.y, radius, this.queryBuf);
+    const targets = this.queryBuf.slice();
+    for (const e of targets) {
+      if (e.dead || e === u || e.faction === u.faction) continue;
+      this.dealDamage(u, e, dmg);
+    }
+    if (!u.dead) this.killEntity(u, null);
   }
 
   killEntity(e: Entity, killer: Entity | null) {
@@ -759,6 +802,14 @@ export class Game {
         }
       }
     }
+    // P4 自爆：被击杀时引爆（接近目标引爆已置 exploded 标记）
+    if (tr?.selfExplode && !u.exploded) {
+      this.selfExplode(u, tr.selfExplode.dmg, tr.selfExplode.radius);
+      return;
+    }
+    // P4 留下尸体（15 秒消散，供亡者复苏消费）
+    this.corpses.push({ x: u.x, y: u.y, defId: u.def.id, faction: u.faction, timer: 15 });
+    if (this.corpses.length > 200) this.corpses.shift();
     // 击杀触发：召唤
     if (killer instanceof Unit && !killer.dead) {
       const ok = killer.def.traits?.onKillSummon;
@@ -862,6 +913,92 @@ export class Game {
         tick: 0.5, faction: hero.faction, heroId: hero.id,
       });
       this.effects.push({ type: 'ring', x, y, radius: sk.radius, life: 0.6, maxLife: 0.6, color: 0xff7733 });
+      return;
+    }
+    // P4 沙暴：地面减速+持续伤害区域
+    if (sk.sandstorm) {
+      this.dotZones.push({
+        x, y, r: sk.radius, dps: sk.sandstorm.dps, timer: sk.sandstorm.dur,
+        tick: 0.5, faction: hero.faction, heroId: hero.id, slowAmt: sk.sandstorm.slow,
+      });
+      this.effects.push({ type: 'ring', x, y, radius: sk.radius, life: 0.6, maxLife: 0.6, color: 0xd0b060 });
+      return;
+    }
+    // P4 亡者复苏：消耗附近尸体召唤骷髅战士
+    if (sk.revive) {
+      const near = this.corpses
+        .map((c, i) => ({ c, i, d: Math.hypot(c.x - x, c.y - y) }))
+        .filter(o => o.d <= sk.radius)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, sk.revive.count);
+      if (near.length === 0) {
+        if (hero.faction === 0) this.onLog('亡者复苏：附近没有尸体');
+        return;
+      }
+      const def = UNITS['skel'];
+      for (const o of near.reverse()) {
+        this.corpses.splice(o.i, 1);
+        const nu = this.spawnUnitAt(def, hero.faction, o.c.x, o.c.y);
+        if (nu) {
+          nu.order = { type: 'attackMove', target: { x: o.c.x, y: o.c.y } };
+          this.effects.push({ type: 'ring', x: o.c.x, y: o.c.y, radius: 24, life: 0.5, maxLife: 0.5, color: 0xc8c8b8 });
+        }
+      }
+      if (hero.faction === 0) this.onLog(`亡者复苏：${near.length} 名骷髅战士从坟墓中爬起！`);
+      return;
+    }
+    // P4 生命虹吸：汲取最近敌人，等量治疗自身
+    if (sk.drain) {
+      let best: Unit | null = null; let bd = Infinity;
+      this.spatial.queryCircle(hero.x, hero.y, sk.radius, this.queryBuf2);
+      for (const e of this.queryBuf2) {
+        if (e.dead || !(e instanceof Unit) || e.faction === hero.faction || e.flying) continue;
+        const d = hero.distTo(e);
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (!best) return;
+      this.dealDamage(hero, best, sk.power);
+      hero.hp = Math.min(hero.maxHp, hero.hp + sk.power);
+      this.effects.push({ type: 'ring', x: best.x, y: best.y, radius: 26, life: 0.4, maxLife: 0.4, color: 0xa040c0 });
+      if (hero.faction === 0) this.onLog(`生命虹吸：汲取 ${best.def.name} ${sk.power} 点生命`);
+      return;
+    }
+    // P4 俯冲突进：向目标点位移并造成范围伤害
+    if (sk.dash) {
+      const dx = x - hero.x, dy = y - hero.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const steps = Math.min(Math.floor(sk.dash.dist / 8), Math.floor(d / 8));
+      for (let i = 0; i < steps; i++) {
+        this.moveEntity(hero, hero.x + (dx / d) * 8, hero.y + (dy / d) * 8);
+      }
+      this.effects.push({ type: 'ring', x: hero.x, y: hero.y, radius: sk.radius, life: 0.45, maxLife: 0.45, color: 0xff6a4a });
+      this.spatial.queryCircle(hero.x, hero.y, sk.radius, this.queryBuf2);
+      for (const e of this.queryBuf2.slice()) {
+        if (e.dead || e === hero || e.faction === hero.faction) continue;
+        this.dealDamage(hero, e, sk.power);
+      }
+      return;
+    }
+    // P4 恐惧：范围内敌人短暂失控乱窜
+    if (sk.fear) {
+      this.spatial.queryCircle(x, y, sk.radius, this.queryBuf2);
+      for (const e of this.queryBuf2) {
+        if (e.dead || !(e instanceof Unit) || e.faction === hero.faction) continue;
+        e.fearTimer = Math.max(e.fearTimer, sk.fear.dur);
+      }
+      this.effects.push({ type: 'ring', x, y, radius: sk.radius, life: 0.5, maxLife: 0.5, color: 0x6040a0 });
+      return;
+    }
+    // P4 自爆大招：牺牲自身造成巨额 AoE，随后进入英雄复活计时
+    if (sk.selfDestruct) {
+      this.effects.push({ type: 'ring', x: hero.x, y: hero.y, radius: sk.radius, life: 0.6, maxLife: 0.6, color: 0xffaa33 });
+      this.spatial.queryCircle(hero.x, hero.y, sk.radius, this.queryBuf2);
+      for (const e of this.queryBuf2.slice()) {
+        if (e.dead || e === hero || e.faction === hero.faction) continue;
+        this.dealDamage(hero, e, sk.power);
+      }
+      if (hero.faction === 0) this.onLog(`${hero.def.name} 化作死亡绽放！`);
+      this.killEntity(hero, null);
       return;
     }
     // P3 灵魂操控：夺取落点最近敌方非英雄单位
@@ -980,6 +1117,8 @@ export class Game {
         this.spatial.queryCircle(s.x, s.y, aura.radius, this.queryBuf2);
         for (const e of this.queryBuf2) {
           if (e.dead || e === s || !(e instanceof Unit) || e.faction !== s.faction) continue;
+          // P4 骷髅系光环：仅对骨架单位生效
+          if (aura.skeletonsOnly && !e.def.skeleton) continue;
           e.auraAtk += aura.atk ?? 0;
           e.auraSpd += aura.atkSpeed ?? 0;
           e.auraMove += aura.move ?? 0;
@@ -1197,6 +1336,11 @@ export class Game {
         const targets = this.queryBuf.slice();
         for (const e of targets) {
           if (e.dead || e.faction === z.faction) continue;
+          // P4 沙暴减速：每跳刷新减速计时
+          if (z.slowAmt && e instanceof Unit) {
+            e.slowTimer = Math.max(e.slowTimer, 0.7);
+            e.slowAmt = Math.max(e.slowAmt, z.slowAmt);
+          }
           this.dealDamage(src, e, z.dps * 0.5);
         }
       }
@@ -1265,6 +1409,12 @@ export class Game {
     // P3 落雷/地面DoT区
     this.updatePendingStrikes(dt);
     this.updateDotZones(dt);
+
+    // P4 尸体 decay
+    if (this.corpses.length > 0) {
+      for (const c of this.corpses) c.timer -= dt;
+      this.corpses = this.corpses.filter(c => c.timer > 0);
+    }
 
     // P2 侦查计时
     if (this.reveals.length > 0) {
