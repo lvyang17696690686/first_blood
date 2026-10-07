@@ -9,6 +9,8 @@ export interface AuraDef {
   atkSpeed?: number;
   /** 移速加成比例 */
   move?: number;
+  /** 仅对骷髅系（def.skeleton）友军生效（P4） */
+  skeletonsOnly?: boolean;
   label: string;
 }
 
@@ -43,6 +45,15 @@ export interface Traits {
   atkStacks?: { per: number; max: number };
   /** P3 冲锋：静止 delay 秒后移速×mult，首次攻击伤害×firstHitMult */
   charge?: { delay: number; mult: number; firstHitMult: number };
+  // ---- P4 亡灵特性 ----
+  /** 自爆：接近目标或死亡时引爆，对半径内敌人造成 dmg 伤害 */
+  selfExplode?: { dmg: number; radius: number };
+  /** 瘟疫：攻击命中使目标每秒受 dps 伤害，持续 dur 秒（溅射可传播） */
+  plague?: { dps: number; dur: number };
+  /** 诅咒：攻击命中降低目标 armor 点护甲，持续 dur 秒 */
+  armorCurse?: { amt: number; dur: number };
+  /** 偷取增益：攻击命中驱散目标正面增益并自身获得加速 */
+  stealBuffs?: boolean;
 }
 
 /** 攻击方能否攻击飞行单位：有对空标签，或是远程弹道单位 */
@@ -75,5 +86,9 @@ export function traitLabels(t: Traits | undefined): string[] {
   if (t.thorns) out.push(`反伤${t.thorns}`);
   if (t.atkStacks) out.push(`攻速叠层×${t.atkStacks.max}`);
   if (t.charge) out.push('冲锋');
+  if (t.selfExplode) out.push(`自爆 AoE${t.selfExplode.dmg}`);
+  if (t.plague) out.push(`瘟疫 ${t.plague.dps}/s`);
+  if (t.armorCurse) out.push(`诅咒降甲${t.armorCurse.amt}`);
+  if (t.stealBuffs) out.push('偷取增益');
   return out;
 }

@@ -431,6 +431,225 @@ export const UNITS: Record<string, UnitDef> = {
       },
     ],
   },
+  // ---- P4 亡灵族兵种（策划文档 §4.3） ----
+  ghoul: {
+    id: 'ghoul', name: '食尸鬼', kind: 'worker', tier: 1,
+    costGold: 40, costCrystal: 0, buildTime: 5,
+    hp: 100, armor: 0, dmg: 6, range: 26, attackSpeed: 1.1, speed: 100,
+    radius: 9, projectile: false, bounty: 8, color: 0x7a8a6a,
+    race: 'undead',
+    desc: '亡灵工人：采集/建造，更廉价快速。',
+  },
+  skelpioneer: {
+    id: 'skelpioneer', name: '骷髅先锋', kind: 'melee', tier: 1,
+    costGold: 35, costCrystal: 0, buildTime: 5,
+    hp: 180, armor: 0, dmg: 11, range: 28, attackSpeed: 1.1, speed: 90,
+    radius: 9, projectile: false, bounty: 12, color: 0xa8a89a,
+    race: 'undead', skeleton: true,
+    desc: '最廉价近战：适合爆骷髅海。',
+  },
+  bonearcher: {
+    id: 'bonearcher', name: '骨弓', kind: 'ranged', tier: 1,
+    costGold: 60, costCrystal: 10, buildTime: 9,
+    hp: 140, armor: 0, dmg: 12, range: 150, attackSpeed: 1.1, speed: 90,
+    radius: 9, projectile: true, bounty: 18, color: 0xb8b09a,
+    race: 'undead', skeleton: true,
+    desc: '远程射手，可攻击飞行单位。',
+    traits: { antiAir: 1 },
+  },
+  demonmage: {
+    id: 'demonmage', name: '恶魔法师', kind: 'ranged', tier: 2,
+    costGold: 100, costCrystal: 40, buildTime: 13,
+    hp: 210, armor: 0, dmg: 22, range: 160, attackSpeed: 0.9, speed: 85,
+    radius: 10, projectile: true, bounty: 40, color: 0x8a5ab0,
+    race: 'undead',
+    desc: '远程法师，稳定的法术输出。',
+  },
+  demonguard: {
+    id: 'demonguard', name: '恶魔护卫', kind: 'melee', tier: 2,
+    costGold: 95, costCrystal: 25, buildTime: 13,
+    hp: 460, armor: 3, dmg: 20, range: 28, attackSpeed: 0.9, speed: 85,
+    radius: 11, projectile: false, bounty: 38, color: 0x6a5a8a,
+    race: 'undead',
+    desc: '近战护卫：高护甲高血量。',
+  },
+  plaguecart: {
+    id: 'plaguecart', name: '瘟疫战车', kind: 'ranged', tier: 2,
+    costGold: 140, costCrystal: 60, buildTime: 16,
+    hp: 430, armor: 2, dmg: 24, range: 170, attackSpeed: 0.55, speed: 65,
+    radius: 12, projectile: true, bounty: 55, color: 0x6a8a4a,
+    race: 'undead',
+    desc: '攻城×2：投掷瘟疫尸体，命中与溅射传播瘟疫（8/s×4秒）。',
+    traits: { siege: 2, splash: 45, plague: { dps: 8, dur: 4 } },
+  },
+  bonequeen: {
+    id: 'bonequeen', name: '白骨女王', kind: 'ranged', tier: 2,
+    costGold: 105, costCrystal: 35, buildTime: 13,
+    hp: 240, armor: 1, dmg: 18, range: 155, attackSpeed: 1.0, speed: 90,
+    radius: 10, projectile: true, bounty: 42, color: 0xc0b8d0,
+    race: 'undead', skeleton: true,
+    desc: '每击杀一个敌人召唤 1 名骷髅战士（场上上限 4）。',
+    traits: { onKillSummon: { unitId: 'skel', max: 4, lifetime: 90 } },
+  },
+  succubus: {
+    id: 'succubus', name: '魅魔', kind: 'ranged', tier: 2,
+    costGold: 115, costCrystal: 45, buildTime: 14,
+    hp: 220, armor: 0, dmg: 20, range: 165, attackSpeed: 1.0, speed: 95,
+    radius: 10, projectile: true, bounty: 45, color: 0xb05a7a,
+    race: 'undead',
+    desc: '对空 ×1.5：飞行单位的克星。',
+    traits: { antiAir: 1.5 },
+  },
+  zombiegiant: {
+    id: 'zombiegiant', name: '丧尸巨人', kind: 'melee', tier: 2,
+    costGold: 120, costCrystal: 40, buildTime: 15,
+    hp: 700, armor: 3, dmg: 30, range: 30, attackSpeed: 0.6, speed: 60,
+    radius: 13, projectile: false, bounty: 48, color: 0x5a7a4a,
+    race: 'undead',
+    desc: '重坦：700 血高护甲前排。',
+  },
+  soulwitch: {
+    id: 'soulwitch', name: '亡魂巫师', kind: 'ranged', tier: 2,
+    costGold: 100, costCrystal: 45, buildTime: 13,
+    hp: 200, armor: 0, dmg: 18, range: 160, attackSpeed: 0.9, speed: 85,
+    radius: 10, projectile: true, bounty: 40, color: 0x7a6ac0,
+    race: 'undead',
+    desc: '诅咒：攻击命中降低目标 3 点护甲，持续 8 秒。',
+    traits: { armorCurse: { amt: 3, dur: 8 } },
+  },
+  devourer: {
+    id: 'devourer', name: '噬魂鬼', kind: 'melee', tier: 3,
+    costGold: 120, costCrystal: 60, buildTime: 15,
+    hp: 260, armor: 1, dmg: 50, range: 30, attackSpeed: 0.8, speed: 120,
+    radius: 11, projectile: false, bounty: 60, color: 0x9a4a5a,
+    race: 'undead',
+    desc: '自爆：扑向目标或死亡时引爆，造成 90 点 AoE 伤害。',
+    traits: { selfExplode: { dmg: 90, radius: 80 } },
+  },
+  ghosttongue: {
+    id: 'ghosttongue', name: '长舌幽灵', kind: 'ranged', tier: 3,
+    costGold: 150, costCrystal: 80, buildTime: 18,
+    hp: 280, armor: 1, dmg: 26, range: 110, attackSpeed: 1.1, speed: 115,
+    radius: 11, projectile: true, bounty: 65, color: 0x8ac0a8,
+    race: 'undead',
+    desc: '飞行单位：高频率输出，仅远程可击中。',
+    traits: { flying: true },
+  },
+  skeletonlord: {
+    id: 'skeletonlord', name: '骷髅将军', kind: 'melee', tier: 3,
+    costGold: 170, costCrystal: 80, buildTime: 20,
+    hp: 620, armor: 5, dmg: 36, range: 30, attackSpeed: 0.8, speed: 80,
+    radius: 12, projectile: false, bounty: 75, color: 0xb0a880,
+    race: 'undead', skeleton: true,
+    desc: '光环：骷髅系友军攻击 +25%。',
+    traits: { aura: { radius: 130, atk: 0.25, skeletonsOnly: true, label: '骷髅系友军攻击+25%' } },
+  },
+  // ---- P4 亡灵召唤物（不入卡组） ----
+  skel: {
+    id: 'skel', name: '骷髅战士', kind: 'melee', tier: 1,
+    costGold: 0, costCrystal: 0, buildTime: 0,
+    hp: 120, armor: 0, dmg: 10, range: 26, attackSpeed: 1.1, speed: 95,
+    radius: 8, projectile: false, bounty: 0, color: 0xc8c8b8,
+    race: 'undead', skeleton: true,
+    desc: '被召唤的骷髅战士。',
+  },
+  hellfire: {
+    id: 'hellfire', name: '地狱火巨人', kind: 'melee', tier: 3,
+    costGold: 0, costCrystal: 0, buildTime: 0,
+    hp: 800, armor: 4, dmg: 40, range: 32, attackSpeed: 0.7, speed: 60,
+    radius: 14, projectile: false, bounty: 0, color: 0xe06020,
+    race: 'undead',
+    desc: '被召唤的火焰巨人，限时存在。',
+  },
+  // ---- P4 亡灵英雄 ×4 ----
+  pope: {
+    id: 'pope', name: '骷髅教皇', kind: 'hero', tier: 2,
+    costGold: 190, costCrystal: 90, buildTime: 25,
+    hp: 540, armor: 3, dmg: 24, range: 165, attackSpeed: 1.0, speed: 85,
+    radius: 10, projectile: true, bounty: 150, color: 0xd0c8a0,
+    race: 'undead', skeleton: true,
+    desc: '亡灵信仰的化身，唤起死者为他而战。',
+    heroSkills: [
+      {
+        id: 'revive', name: '亡者复苏', hotkey: 'Q',
+        cooldown: 14, manaCost: 55, radius: 220, power: 0, targetAllies: false,
+        revive: { count: 3 },
+        desc: '消耗附近最多3具尸体，各召唤1名骷髅战士。',
+      },
+      {
+        id: 'hypnosis', name: '信仰催眠', hotkey: 'W',
+        cooldown: 16, manaCost: 50, radius: 70, power: 0, targetAllies: false,
+        targeted: true, charm: { dur: 6 },
+        desc: '魅惑一名敌方单位为我方作战6秒。',
+      },
+    ],
+  },
+  necromancer: {
+    id: 'necromancer', name: '死灵术士', kind: 'hero', tier: 2,
+    costGold: 190, costCrystal: 90, buildTime: 25,
+    hp: 500, armor: 2, dmg: 26, range: 170, attackSpeed: 0.9, speed: 85,
+    radius: 10, projectile: true, bounty: 150, color: 0x5a6ab0,
+    race: 'undead',
+    desc: '禁忌术法的大师，召唤地狱火、汲取生命。',
+    heroSkills: [
+      {
+        id: 'hellfire', name: '地狱火', hotkey: 'Q',
+        cooldown: 25, manaCost: 70, radius: 60, power: 0, targetAllies: false,
+        targeted: true, summon: { unitId: 'hellfire', count: 1, lifetime: 30 },
+        desc: '召唤火焰巨人（800血），持续30秒。',
+      },
+      {
+        id: 'lifedrain', name: '生命虹吸', hotkey: 'W',
+        cooldown: 10, manaCost: 40, radius: 180, power: 90, targetAllies: false,
+        targeted: true, drain: { dmg: 90 },
+        desc: '汲取最近敌人90点生命，等量治疗自身。',
+      },
+    ],
+  },
+  demonlord: {
+    id: 'demonlord', name: '恶魔王骑·迪克', kind: 'hero', tier: 2,
+    costGold: 190, costCrystal: 90, buildTime: 25,
+    hp: 620, armor: 4, dmg: 32, range: 30, attackSpeed: 1.1, speed: 125,
+    radius: 11, projectile: false, bounty: 150, color: 0xa03a3a,
+    race: 'undead',
+    desc: '地狱的骑兵，冲锋陷阵、散播绝望。',
+    heroSkills: [
+      {
+        id: 'dive', name: '俯冲突进', hotkey: 'Q',
+        cooldown: 10, manaCost: 45, radius: 70, power: 70, targetAllies: false,
+        targeted: true, dash: { dist: 150 },
+        desc: '向目标点突进150距离，落地对周围造成70点伤害。',
+      },
+      {
+        id: 'oppress', name: '绝望压迫', hotkey: 'W',
+        cooldown: 13, manaCost: 50, radius: 110, power: 0, targetAllies: false,
+        fear: { dur: 0.8 },
+        desc: '范围恐惧：敌人失控0.8秒。',
+      },
+    ],
+  },
+  deathgod: {
+    id: 'deathgod', name: '沙漠死神·阿努比斯', kind: 'hero', tier: 2,
+    costGold: 190, costCrystal: 90, buildTime: 25,
+    hp: 950, armor: 6, dmg: 28, range: 32, attackSpeed: 0.9, speed: 70,
+    radius: 12, projectile: false, bounty: 150, color: 0xd0a84d,
+    race: 'undead',
+    desc: '掌管死亡的神明，沙暴埋葬敌人，自爆亦能归来。',
+    heroSkills: [
+      {
+        id: 'sandstorm', name: '沙暴', hotkey: 'Q',
+        cooldown: 12, manaCost: 55, radius: 95, power: 0, targetAllies: false,
+        targeted: true, sandstorm: { dps: 30, dur: 5, slow: 0.4 },
+        desc: '沙暴区域：每秒30点伤害并减速40%，持续5秒。',
+      },
+      {
+        id: 'selfdestruct', name: '死亡绽放', hotkey: 'W',
+        cooldown: 30, manaCost: 80, radius: 120, power: 200, targetAllies: false,
+        selfDestruct: { dmg: 200 },
+        desc: '牺牲自身引爆巨额 AoE（200点），随后进入复活计时。',
+      },
+    ],
+  },
 };
 
 // ===== 建筑数据 =====
@@ -487,6 +706,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     trains: [
       'swordsman', 'archer', 'druid', 'panther', 'chariot', 'treant', 'fawn', 'firedrake', 'golem', 'thunderer', 'teacher', 'assassin',
       'bfighter', 'spearfrog', 'shieldbull', 'witchdoc', 'fangwolf', 'axethrower', 'crushercart', 'firewitch', 'dragoon', 'shaman', 'chainknight', 'lavabeast', 'cyclops',
+      'skelpioneer', 'bonearcher', 'demonmage', 'demonguard', 'plaguecart', 'bonequeen', 'succubus', 'zombiegiant', 'soulwitch', 'devourer', 'ghosttongue', 'skeletonlord',
     ],
     income: 1.5,
     desc: '中立据点：占领后持续产金，并可作为前进出兵点。',
@@ -544,16 +764,70 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     race: 'blood',
     desc: '防御塔，自动攻击范围内敌人。',
   },
+
+  // ===== P4 亡灵族建筑（策划文档 §4.3） =====
+  throne: {
+    id: 'throne', name: '亡灵王座', kind: 'main',
+    costGold: 0, costCrystal: 0, buildTime: 0,
+    hp: 1600, armor: 4, w: 3, h: 3, tier: 1,
+    color: 0x4a3a5a, supply: 10, crystalRate: 0, trains: ['ghoul'],
+    race: 'undead',
+    desc: '亡灵主基地：训练食尸鬼、上交金币、升级科技。被摧毁则战败。',
+  },
+  graveyard: {
+    id: 'graveyard', name: '尸骸墓穴', kind: 'house',
+    costGold: 60, costCrystal: 0, buildTime: 12,
+    hp: 400, armor: 0, w: 2, h: 2, tier: 1,
+    color: 0x3a3a4a, supply: 8, crystalRate: 0, trains: [],
+    race: 'undead',
+    desc: '提供8人口。',
+  },
+  boneyard: {
+    id: 'boneyard', name: '埋骨地', kind: 'barracks',
+    costGold: 150, costCrystal: 0, buildTime: 20,
+    hp: 800, armor: 2, w: 3, h: 3, tier: 1,
+    color: 0x4a4440, supply: 0, crystalRate: 0,
+    trains: ['skelpioneer', 'bonearcher', 'demonmage', 'demonguard', 'plaguecart', 'bonequeen', 'succubus', 'zombiegiant', 'soulwitch'],
+    race: 'undead',
+    desc: '训练1-2本亡灵战斗单位。',
+  },
+  wellspring: {
+    id: 'wellspring', name: '怨灵井', kind: 'extractor',
+    costGold: 100, costCrystal: 0, buildTime: 15,
+    hp: 500, armor: 1, w: 2, h: 2, tier: 1,
+    color: 0x3a5a5a, supply: 0, crystalRate: 1.2, trains: [],
+    race: 'undead',
+    desc: '每秒产出1.2原石。原石用于科技与高级单位。',
+  },
+  cursetemple: {
+    id: 'cursetemple', name: '诅咒神殿', kind: 'arcane',
+    costGold: 120, costCrystal: 80, buildTime: 25,
+    hp: 650, armor: 2, w: 2, h: 2, tier: 2,
+    color: 0x5a3a6a, supply: 0, crystalRate: 0,
+    trains: ['devourer', 'ghosttongue', 'skeletonlord', 'pope', 'necromancer', 'demonlord', 'deathgod'],
+    race: 'undead',
+    desc: '需要2本。训练3本单位与英雄（最多召唤3名英雄）。',
+  },
+  ghosttower: {
+    id: 'ghosttower', name: '幽灵塔', kind: 'tower',
+    costGold: 80, costCrystal: 40, buildTime: 18,
+    hp: 550, armor: 4, w: 2, h: 2, tier: 1,
+    color: 0x404a52, supply: 0, crystalRate: 0, trains: [],
+    dmg: 16, range: 190, attackSpeed: 1, projectile: true,
+    race: 'undead',
+    desc: '防御塔，自动攻击范围内敌人。',
+  },
 };
 
-/** 种族 → 各类建筑 defId 映射（P3） */
+/** 种族 → 各类建筑 defId 映射（P3/P4） */
 export const RACE_BUILDINGS: Record<string, Record<string, string>> = {
   elf: { main: 'main', house: 'house', barracks: 'barracks', extractor: 'extractor', arcane: 'arcane', tower: 'tower' },
   blood: { main: 'totem', house: 'pen', barracks: 'bloodcamp', extractor: 'lavaaltar', arcane: 'prophecy', tower: 'bloodtower' },
+  undead: { main: 'throne', house: 'graveyard', barracks: 'boneyard', extractor: 'wellspring', arcane: 'cursetemple', tower: 'ghosttower' },
 };
 
-/** 种族 → 工人 defId（P3） */
-export const RACE_WORKER: Record<string, string> = { elf: 'worker', blood: 'bworker' };
+/** 种族 → 工人 defId（P3/P4） */
+export const RACE_WORKER: Record<string, string> = { elf: 'worker', blood: 'bworker', undead: 'ghoul' };
 
 /** 主基地科技升级 */
 export const TECH_UPGRADES = [
@@ -575,6 +849,12 @@ export const DECK_UNIT_POOL_BLOOD = [
   'crushercart', 'firewitch', 'dragoon', 'shaman', 'chainknight', 'lavabeast', 'cyclops',
 ] as const;
 export const DECK_HERO_POOL_BLOOD = ['brade', 'syl', 'dukun', 'kada'] as const;
+/** P4 亡灵族卡池 */
+export const DECK_UNIT_POOL_UNDEAD = [
+  'skelpioneer', 'bonearcher', 'demonmage', 'demonguard', 'plaguecart', 'bonequeen',
+  'succubus', 'zombiegiant', 'soulwitch', 'devourer', 'ghosttongue', 'skeletonlord',
+] as const;
+export const DECK_HERO_POOL_UNDEAD = ['pope', 'necromancer', 'demonlord', 'deathgod'] as const;
 export const DECK_UNITS = 6;
 export const DECK_HEROES = 3;
 
@@ -629,6 +909,8 @@ export const PROJECTILE_SPEED = 340;
 export const BUILD_MENU: string[] = ['house', 'barracks', 'extractor', 'arcane', 'tower'];
 /** 血兽族建造菜单（P3） */
 export const BUILD_MENU_BLOOD: string[] = ['pen', 'bloodcamp', 'lavaaltar', 'prophecy', 'bloodtower'];
+/** 亡灵族建造菜单（P4） */
+export const BUILD_MENU_UNDEAD: string[] = ['graveyard', 'boneyard', 'wellspring', 'cursetemple', 'ghosttower'];
 
 // ===== P2 地图机制 =====
 /** 占领费用：中立 150 / 敌方占领 300 */

@@ -23,8 +23,8 @@ export type Order =
 
 import type { Traits } from './traits';
 
-/** 种族（P3）：elf 精灵 / blood 血兽 */
-export type Race = 'elf' | 'blood';
+/** 种族（P3/P4）：elf 精灵 / blood 血兽 / undead 亡灵 */
+export type Race = 'elf' | 'blood' | 'undead';
 
 /** 出战卡组（P1）：6 兵团卡 + 3 英雄卡 */
 export interface Deck {
@@ -58,6 +58,8 @@ export interface UnitDef {
   traits?: Traits;
   /** 所属种族（P3）：缺省 elf */
   race?: Race;
+  /** 骨架单位（P4）：受骷髅系光环加成 */
+  skeleton?: boolean;
   // 英雄专用
   heroSkills?: HeroSkillDef[];
 }
@@ -94,6 +96,19 @@ export interface HeroSkillDef {
   charm?: { dur: number };
   /** 降敌攻击：范围内敌人攻击 ×mult，持续 dur 秒 */
   atkDebuff?: { mult: number; dur: number };
+  // ---- P4 亡灵新技能效果 ----
+  /** 亡者复苏：消耗附近尸体召唤骷髅 */
+  revive?: { count: number };
+  /** 生命虹吸：对最近敌人造成伤害并等量治疗自身 */
+  drain?: { dmg: number };
+  /** 俯冲突进：向目标点位移并造成小范围伤害 */
+  dash?: { dist: number };
+  /** 恐惧：范围内敌人短暂失控乱窜 */
+  fear?: { dur: number };
+  /** 沙暴：地面减速+持续伤害区域（dotZone 的减速扩展） */
+  sandstorm?: { dps: number; dur: number; slow: number };
+  /** 自爆大招：牺牲自身造成巨额 AoE，随后进入英雄复活计时 */
+  selfDestruct?: { dmg: number };
 }
 
 export interface BuildingDef {
