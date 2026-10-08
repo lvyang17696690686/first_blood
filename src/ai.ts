@@ -66,8 +66,15 @@ export class AIController {
     game.decks[faction] = this.deck;
   }
 
-  /** 敌方玩家阵营 */
-  private get enemy(): Faction { return this.faction === 0 ? 1 : 0; }
+  /** 敌方阵营列表（P5：按队伍划分，可多个） */
+  private get enemies(): Faction[] {
+    const out: Faction[] = [];
+    for (let f = 0; f < this.game.factions.length; f++) {
+      if (f === 2) continue;
+      if (!this.game.sameTeam(f as Faction, this.faction)) out.push(f as Faction);
+    }
+    return out;
+  }
   /** 本族 kind → defId 映射 */
   private get rb(): Record<string, string> { return RACE_BUILDINGS[this.game.races[this.faction]]; }
 
@@ -82,6 +89,10 @@ export class AIController {
 
   private get mine(): Building[] {
     return this.game.buildings.filter(b => !b.dead && b.faction === this.faction);
+  }
+  /** P5：全队建筑（协防判定用） */
+  private get teamBuildings(): Building[] {
+    return this.game.buildings.filter(b => !b.dead && this.game.sameTeam(b.faction, this.faction));
   }
   private get myUnits(): Unit[] {
     return this.game.units.filter(u => !u.dead && u.faction === this.faction);
@@ -241,10 +252,10 @@ export class AIController {
     const allIn = g.time > 270;
     if (allIn) this.onLogOnce('发起总攻！全军出击！');
 
-    // ---- 防守：家附近有敌人（总攻期只回防一半，主力继续围城，防止被小股敌人拉扯回家） ----
+    // ---- 防守：全队任一建筑附近有敌人（总攻期只回防一半，主力继续围城，防止被小股敌人拉扯回家） ----
     const threat = g.units.find(u =>
-      !u.dead && u.faction === this.enemy && u.def.kind !== 'worker' &&
-      this.mine.some(b => Math.hypot(u.x - b.x, u.y - b.y) < 480));
+      !u.dead && u.faction !== 2 && !g.sameTeam(u.faction, this.faction) && u.def.kind !== 'worker' &&
+      this.teamBuildings.some(b => Math.hypot(u.x - b.x, u.y - b.y) < 480));
     if (threat) {
       const sorted = army.slice().sort((a, b) =>
         Math.hypot(a.x - threat.x, a.y - threat.y) - Math.hypot(b.x - threat.x, b.y - threat.y));
@@ -257,7 +268,21 @@ export class AIController {
       return;
     }
 
-    const foeArmy = g.units.filter(u => !u.dead && u.faction === this.enemy && u.def.kind !== 'worker').length;
+    // ---- P5 团队协同：队友/玩家发起进攻波次时跟进 ----
+    if (!this.attacking) {
+      const waveTarget = this.teamWaveTarget(army.length);
+      if (waveTarget) {
+        for (const u of army) {
+          if (u.order.type === 'idle' || u.order.type === 'move') {
+            u.order = { type: 'attackMove', target: { ...waveTarget } };
+          }
+        }
+        return;
+      }
+    }
+
+    const foeArmy = g.units.filter(u =>
+      !u.dead && u.faction !== 2 && !g.sameTeam(u.faction, this.faction) && u.def.kind !== 'worker').length;
     // 血兽/亡灵走海量快攻节奏，精灵走质量爬升节奏
     const swarm = g.races[this.faction] !== 'elf';
     const base = swarm ? Math.min(8 + this.wave * 3, 18) : Math.min(8 + this.wave * 4, 22);
@@ -266,6 +291,9 @@ export class AIController {
     if (!this.attacking && army.length >= threshold) {
       this.attacking = true;
       this.sentCount = army.length;
+      // P5：向队友广播本次进攻波次目标
+      const wt = this.pickAttackTarget(allIn);
+      if (wt) g.aiWaves.set(this.faction, { target: wt, since: g.time });
     }
     if (this.attacking) {
       if (!allIn && army.length < Math.max(3, this.sentCount * 0.35)) {
@@ -301,30 +329,69 @@ export class AIController {
   private onLogOnce(msg: string) {
     if (this.allInLogged) return;
     this.allInLogged = true;
-    this.game.onLog(this.faction === 1 ? `敌方${msg}` : msg);
+    this.game.onLog(this.game.sameTeam(this.faction, 0) ? `队友${msg}` : `敌方${msg}`);
+  }
+
+  /** P5 团队协同目标：队友 AI 的共享波次 / 玩家主力压上时跟随 */
+  private teamWaveTarget(armySize: number): { x: number; y: number } | null {
+    const g = this.game;
+    if (armySize < 5) return null;
+    const now = g.time;
+    // 队友 AI 广播的进攻波次（90 秒内有效）
+    for (const [f, wave] of g.aiWaves) {
+      if (f === this.faction || !g.sameTeam(f as Faction, this.faction)) continue;
+      if (now - wave.since > 90) continue;
+      return wave.target;
+    }
+    // 玩家主力压上（≥8 战斗单位且靠近敌方建筑）→ 协同跟进
+    if (g.sameTeam(0, this.faction)) {
+      const playerArmy = g.units.filter(u => !u.dead && u.faction === 0 && u.def.kind !== 'worker');
+      if (playerArmy.length >= 8) {
+        const pressing = playerArmy.some(u =>
+          g.buildings.some(b => !b.dead && b.faction !== 2 && !g.sameTeam(b.faction, 0) &&
+            Math.hypot(u.x - b.x, u.y - b.y) < 640));
+        if (pressing) {
+          // 目标：距玩家部队最近的敌方建筑
+          const px = playerArmy[0].x, py = playerArmy[0].y;
+          let best: { x: number; y: number } | null = null;
+          let bd = Infinity;
+          for (const b of g.buildings) {
+            if (b.dead || b.faction === 2 || g.sameTeam(b.faction, 0)) continue;
+            const d = Math.hypot(b.x - px, b.y - py);
+            if (d < bd) { bd = d; best = { x: b.x, y: b.y }; }
+          }
+          return best;
+        }
+      }
+    }
+    return null;
   }
 
   private pickAttackTarget(allIn: boolean): { x: number; y: number } | null {
     const g = this.game;
-    const foe = this.enemy;
-    if (!allIn) {
-      const main = g.getMain(foe);
-      if (main) return { x: main.x, y: main.y };
-    }
-    // 总攻：从距我主基地最近的敌方建筑开始逐栋拆除（塔/人口先掉，持续推进不可逆）
     const ref = g.getMain(this.faction);
     const bx = ref?.x ?? 0, by = ref?.y ?? 0;
+    if (!allIn) {
+      // 非总攻：打最近的敌方主基地
+      let best: Building | null = null;
+      let bd = Infinity;
+      for (const b of g.buildings) {
+        if (b.dead || b.def.kind !== 'main' || g.sameTeam(b.faction, this.faction)) continue;
+        const d = Math.hypot(b.x - bx, b.y - by);
+        if (d < bd) { bd = d; best = b; }
+      }
+      if (best) return { x: best.x, y: best.y };
+    }
+    // 总攻：从距我主基地最近的敌方建筑开始逐栋拆除（塔/人口先掉，持续推进不可逆）
     let best: Building | null = null;
     let bd = Infinity;
     for (const b of g.buildings) {
-      if (b.dead || b.faction !== foe) continue;
+      if (b.dead || b.faction === 2 || g.sameTeam(b.faction, this.faction)) continue;
       const d = Math.hypot(b.x - bx, b.y - by);
       if (d < bd) { bd = d; best = b; }
     }
     if (best) return { x: best.x, y: best.y };
-    const main = g.getMain(foe);
-    if (main) return { x: main.x, y: main.y };
-    const u = g.units.find(x => x.faction === foe && !x.dead);
+    const u = g.units.find(x => !x.dead && x.faction !== 2 && !g.sameTeam(x.faction, this.faction));
     return u ? { x: u.x, y: u.y } : null;
   }
 
@@ -359,15 +426,15 @@ export class AIController {
     let best: ResourceNode | Building | null = null;
     let bd = Infinity;
     for (const n of g.resourceNodes.values()) {
-      // 只占领有产金收益的中立矿（普通矿点占领零收益，纯烧 150 金）
-      if (n.owner === this.faction || n.depleted || n.income <= 0) continue;
+      // 只占领有产金收益的中立矿（普通矿点占领零收益，纯烧 150 金）；同队已占跳过
+      if (g.sameTeam(n.owner as Faction, this.faction) || n.depleted || n.income <= 0) continue;
       // 中立矿 150 金：留 100 金缓冲
       if (f.gold < 250) break;
       const d = Math.hypot(n.x - main.x, n.y - main.y);
       if (d < bd) { bd = d; best = n; }
     }
     for (const b of g.buildings) {
-      if (b.dead || b.def.kind !== 'stronghold' || b.faction === this.faction) continue;
+      if (b.dead || b.def.kind !== 'stronghold' || g.sameTeam(b.faction, this.faction)) continue;
       // 据点 300 金：留 100 金缓冲
       if (f.gold < 400) break;
       const d = Math.hypot(b.x - main.x, b.y - main.y);

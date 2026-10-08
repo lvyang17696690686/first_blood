@@ -689,7 +689,7 @@ export class Building extends Entity {
     // 原石产出
     if (this.def.crystalRate > 0) game.addCrystal(this.faction, this.def.crystalRate * dt);
     // P2 据点产金（占领后）
-    if (this.def.income && this.faction <= 1) game.deposit(this.faction, this.def.income * dt);
+    if (this.def.income && this.faction !== 2) game.deposit(this.faction, this.def.income * dt);
 
     // 科技升级
     if (this.techUpgrade) {
@@ -747,8 +747,8 @@ export interface ResourceNode {
   slots: number;
   workers: number[];
   depleted: boolean;
-  /** P2 占领态：-1 中立 / 0 / 1（占领后产金叠加层） */
-  owner: -1 | 0 | 1;
+  /** P2 占领态：-1 中立 / 2 野怪占据 / 其余为占领阵营（占领后产金叠加层） */
+  owner: number;
   /** P2 是否带野怪守军（中场矿） */
   guarded: boolean;
   /** P2 占领后每秒产金 */

@@ -46,9 +46,9 @@ export class GameMap {
   /** 各阵营出生点（世界坐标，主基地中心） */
   startPositions: Vec2[] = [];
 
-  constructor(seed = 20260927) {
+  constructor(seed = 20260927, teamSize = 1) {
     this.tiles = new Uint8Array(MAP_W * MAP_H);
-    this.generate(seed);
+    this.generate(seed, teamSize);
   }
 
   idx(tx: number, ty: number) { return ty * this.w + tx; }
@@ -112,30 +112,43 @@ export class GameMap {
     }
   }
 
-  private generate(seed: number) {
+  private generate(seed: number, teamSize = 1) {
     const rng = mulberry32(seed);
 
-    // 出生点：玩家左下、敌人右上
-    const playerStart = { tx: 13, ty: 80 };
-    const enemyStart = { tx: 82, ty: 13 };
-    this.startPositions = [
-      { x: (playerStart.tx + 1.5) * TILE, y: (playerStart.ty + 1.5) * TILE },
-      { x: (enemyStart.tx + 1.5) * TILE, y: (enemyStart.ty + 1.5) * TILE },
-    ];
+    // 出生点：槽位 0/2/4=玩家方（左下），1/3/5=敌方（右上）
+    const pStarts: Array<[number, number]> = [[13, 80]];
+    const eStarts: Array<[number, number]> = [[82, 13]];
+    if (teamSize >= 2) {
+      pStarts.push([24, 88]);
+      eStarts.push([71, 7]);
+    }
+    if (teamSize >= 3) {
+      pStarts.push([7, 63]);
+      eStarts.push([89, 30]);
+    }
+    this.startPositions = [...pStarts, ...eStarts].map(([tx, ty]) => ({
+      x: (tx + 1.5) * TILE, y: (ty + 1.5) * TILE,
+    }));
 
     // 主基地 3x3 占位
-    this.blockRect(playerStart.tx, playerStart.ty, 3, 3);
-    this.blockRect(enemyStart.tx, enemyStart.ty, 3, 3);
+    for (const [tx, ty] of [...pStarts, ...eStarts]) this.blockRect(tx, ty, 3, 3);
 
-    // 金矿点位：两矿贴家 + 两中立矿
+    // 金矿点位：两矿贴家 + 每个额外出生点 1 座 + 两中立矿（中立矿保持最后，守军按末两位标记）
     const mines: Array<[number, number]> = [
-      [playerStart.tx + 6, playerStart.ty - 2],
-      [playerStart.tx - 3, playerStart.ty - 7],
-      [enemyStart.tx - 6, enemyStart.ty + 1],
-      [enemyStart.tx + 4, enemyStart.ty + 4],
-      [30, 46],
-      [64, 48],
+      [pStarts[0][0] + 6, pStarts[0][1] - 2],
+      [pStarts[0][0] - 3, pStarts[0][1] - 7],
+      [eStarts[0][0] - 6, eStarts[0][1] + 1],
+      [eStarts[0][0] + 4, eStarts[0][1] + 4],
     ];
+    if (teamSize >= 2) {
+      mines.push([pStarts[1][0] + 6, pStarts[1][1] - 3]);   // P2 家矿
+      mines.push([eStarts[1][0] - 6, eStarts[1][1] + 3]);   // E2 家矿
+    }
+    if (teamSize >= 3) {
+      mines.push([pStarts[2][0] + 7, pStarts[2][1] - 2]);   // P3 家矿
+      mines.push([eStarts[2][0] - 6, eStarts[2][1] + 4]);   // E3 家矿
+    }
+    mines.push([30, 46], [64, 48]);                           // 中立矿（最后）
     for (const [tx, ty] of mines) {
       this.blockRect(tx, ty, 2, 2);
       this.nodeSpawns.push({ type: 'gold', tx, ty, amount: 4000, slots: 6 });

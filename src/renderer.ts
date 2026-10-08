@@ -136,7 +136,7 @@ export class Renderer {
       // P2：被占领的矿画归属环
       if (n.owner !== -1) {
         g.rect(n.tx * TILE + 1, n.ty * TILE + 1, n.w * TILE - 2, n.h * TILE - 2)
-          .stroke({ width: 2, color: FACTION_COLORS[n.owner as 0 | 1 | 2] });
+          .stroke({ width: 2, color: FACTION_COLORS[n.owner] });
       }
     }
   }
@@ -159,9 +159,12 @@ export class Renderer {
     // 建筑
     for (const b of game.buildings) {
       if (b.dead) continue;
-      if (b.faction !== 0 && !b.seenBy[0]) continue;
+      if (!game.sameTeam(b.faction, 0) && !b.seenBy[0]) continue;
       const x = b.tx * TILE, y = b.ty * TILE, w = b.w * TILE, h = b.h * TILE;
-      const base = b.faction === 0 ? b.def.color : b.faction === 1 ? mix(b.def.color, 0xcc3333, 0.45) : b.def.color;
+      const base = b.faction === 0 ? b.def.color
+        : b.faction === 2 ? b.def.color
+        : game.sameTeam(b.faction, 0) ? mix(b.def.color, 0x3fb8c8, 0.35)
+        : mix(b.def.color, 0xcc3333, 0.45);
       const alpha = b.built ? 1 : 0.45;
       g.rect(x + 2, y + 2, w - 4, h - 4).fill({ color: base, alpha });
       g.rect(x + 2, y + 2, w - 4, h - 4).stroke({ width: 2, color: FACTION_COLORS[b.faction], alpha: b.faction === 2 ? 0.6 : 1 });
@@ -210,14 +213,15 @@ export class Renderer {
     // 单位
     for (const u of game.units) {
       if (u.dead) continue;
-      if (u.faction !== 0 && !this.visibleUnit(u)) continue;
+      if (!game.sameTeam(u.faction, 0) && !this.visibleUnit(u)) continue;
       const r = u.radius;
       const fly = u.flying;
       const yo = fly ? -12 : 0; // 飞行悬浮偏移
       const uy = u.y + yo;
       const col = u.faction === 0 ? u.def.color
-        : u.faction === 1 ? mix(u.def.color, 0xcc3333, 0.4)
-        : u.def.color;
+        : u.faction === 2 ? u.def.color
+        : game.sameTeam(u.faction, 0) ? mix(u.def.color, 0x3fb8c8, 0.3)
+        : mix(u.def.color, 0xcc3333, 0.4);
       // 影子（飞行时更小更淡）
       g.ellipse(u.x, u.y + r * 0.7, fly ? r * 0.55 : r * 0.9, fly ? r * 0.25 : r * 0.4)
         .fill({ color: 0x000000, alpha: fly ? 0.15 : 0.25 });
@@ -295,14 +299,14 @@ export class Renderer {
     }
     for (const b of game.buildings) {
       if (b.dead || !b.selected) continue;
-      if (b.faction !== 0 && !b.seenBy[0]) continue;
+      if (!game.sameTeam(b.faction, 0) && !b.seenBy[0]) continue;
       g.rect(b.tx * TILE + 1, b.ty * TILE + 1, b.w * TILE - 2, b.h * TILE - 2)
         .stroke({ width: 1.5, color: 0x6dff8a });
     }
   }
 
   private visibleUnit(u: Unit): boolean {
-    if (u.faction === 0) return true;
+    if (this.game.sameTeam(u.faction, 0)) return true;
     const tx = Math.floor(u.x / TILE), ty = Math.floor(u.y / TILE);
     if (tx < 0 || ty < 0 || tx >= this.game.map.w || ty >= this.game.map.h) return false;
     return this.game.fog[ty * this.game.map.w + tx] === 2;
@@ -312,7 +316,9 @@ export class Renderer {
     if (!show || maxHp <= 0) return;
     const p = Math.max(0, hp / maxHp);
     g.rect(x, y, w, 4).fill({ color: 0x111111, alpha: 0.8 });
-    const c = faction === 0 ? 0x55dd55 : faction === 1 ? 0xdd5555 : 0xd0a84d;
+    const t = this.game.teams[faction];
+    const c = t === this.game.teams[0] ? (faction === 0 ? 0x55dd55 : 0x3fb8c8)
+      : faction === 2 ? 0xd0a84d : 0xdd5555;
     g.rect(x + 0.5, y + 0.5, (w - 1) * p, 3).fill(c);
   }
 

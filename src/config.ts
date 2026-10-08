@@ -11,8 +11,9 @@ export const POP_CAP = 60;
 export const START_GOLD = 700;
 export const START_CRYSTAL = 150;
 
-export const FACTION_COLORS = ['#4dd06a', '#e05a5a', '#d0a84d'];
-export const FACTION_NAMES = ['玩家', '敌方', '野怪'];
+/** P5：0/1 为 1v1 双方，2 野怪，3/5 玩家队友，4/6 敌方队友 */
+export const FACTION_COLORS = ['#4dd06a', '#e05a5a', '#d0a84d', '#3fb8c8', '#d07a3f', '#8f7ad0', '#b04858'];
+export const FACTION_NAMES = ['玩家', '敌方', '野怪', '队友', '敌方', '队友', '敌方'];
 
 /** 固定模拟步长 */
 export const STEP_DT = 1 / 30;

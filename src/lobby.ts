@@ -30,14 +30,15 @@ const RACES = [
 /** 出战卡组界面：主界面 → 选族 → 选卡 → 开战（P5：支持继续游戏） */
 export class Lobby {
   private root: HTMLDivElement;
-  private onStart: (deck: Deck, race: Race) => void;
+  private onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void;
   private onContinue: (() => void) | null;
   private step: 'race' | 'deck' = 'race';
   private race: Race = 'elf';
+  private teamSize: 1 | 2 | 3 = 1;
   private selectedUnits = new Set<string>();
   private selectedHeroes = new Set<string>();
 
-  constructor(onStart: (deck: Deck, race: Race) => void, onContinue?: () => void) {
+  constructor(onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void, onContinue?: () => void) {
     this.onStart = onStart;
     this.onContinue = onContinue ?? null;
     this.root = document.createElement('div');
@@ -53,6 +54,11 @@ export class Lobby {
   // ===== 步骤 1：选族 =====
   private renderRace() {
     this.step = 'race';
+    const modes: Array<[1 | 2 | 3, string, string]> = [
+      [1, '1 v 1', '标准对决'],
+      [2, '2 v 2', '与队友 AI 并肩作战'],
+      [3, '3 v 3', '三方混战团战'],
+    ];
     this.root.innerHTML = `
       <div class="lobby-card">
         <h1>第一滴血</h1>
@@ -66,6 +72,15 @@ export class Lobby {
               ${r.playable ? '' : '<span class="soon">敬请期待</span>'}
             </div>`).join('')}
         </div>
+        <div class="mode-row">
+          <h4>对战模式</h4>
+          <div class="mode-cards">
+            ${modes.map(([n, name, desc]) => `
+              <div class="mode-card ${this.teamSize === n ? 'on' : ''}" data-mode="${n}">
+                <b>${name}</b><span>${desc}</span>
+              </div>`).join('')}
+          </div>
+        </div>
         ${this.onContinue ? '<button id="lobby-continue" class="lobby-btn continue">⏵ 继续上次游戏</button>' : ''}
       </div>`;
     const cont = this.root.querySelector('#lobby-continue');
@@ -73,6 +88,13 @@ export class Lobby {
       const cb = this.onContinue;
       this.destroy();
       cb?.();
+    });
+    this.root.querySelectorAll('.mode-card').forEach(el => {
+      el.addEventListener('click', () => {
+        this.teamSize = Number((el as HTMLElement).dataset.mode) as 1 | 2 | 3;
+        this.root.querySelectorAll('.mode-card').forEach(m => m.classList.remove('on'));
+        el.classList.add('on');
+      });
     });
     this.root.querySelectorAll('.race-card.playable, .race-card:not(.locked)').forEach(el => {
       el.addEventListener('click', () => {
@@ -178,8 +200,9 @@ export class Lobby {
     (this.root.querySelector('#deck-start') as HTMLButtonElement).addEventListener('click', () => {
       if (!this.deckComplete()) return;
       const race = this.race;
+      const teamSize = this.teamSize;
       this.destroy();
-      this.onStart(this.currentDeck(), race);
+      this.onStart(this.currentDeck(), race, teamSize);
     });
 
     this.refreshDeckUi();

@@ -425,8 +425,8 @@ export class InputController {
 
     const hit = this.pickAt(wx, wy);
 
-    // 攻击敌人（飞行目标：不能对空的单位改为跟随移动）
-    if (hit && hit.faction !== 0) {
+    // 攻击敌人（友军/队友单位 → 视为移动；飞行目标：不能对空的单位改为跟随移动）
+    if (hit && hit.faction !== 2 && !this.game.sameTeam(hit.faction, 0)) {
       const hitFlying = hit instanceof Unit && hit.flying;
       for (const u of units) {
         if (hitFlying && !u.canAir) {
@@ -521,7 +521,7 @@ export class InputController {
     const units = this.selection.filter((s): s is Unit => s instanceof Unit && s.faction === 0 && s.def.kind !== 'worker');
     if (units.length === 0) return;
     const hit = this.pickAt(wx, wy);
-    if (hit && hit.faction !== 0 && hit instanceof Unit) {
+    if (hit && hit.faction !== 2 && !this.game.sameTeam(hit.faction, 0) && hit instanceof Unit) {
       const fly = hit.flying;
       for (const u of units) {
         if (fly && !u.canAir) {

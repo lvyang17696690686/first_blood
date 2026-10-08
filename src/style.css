@@ -314,6 +314,24 @@ html, body {
   border-radius: 10px;
   padding: 1px 10px;
 }
+/* P5 对战模式选择 */
+.mode-row { margin-top: 20px; }
+.mode-row h4 { color: #cfd6df; font-size: 13px; margin-bottom: 8px; }
+.mode-cards { display: flex; gap: 12px; justify-content: center; }
+.mode-card {
+  width: 150px;
+  padding: 10px 12px;
+  border: 2px solid #3a4356;
+  border-radius: 8px;
+  background: #1b2233;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.mode-card b { display: block; font-size: 15px; color: #e8edf4; }
+.mode-card span { font-size: 11px; color: #9fb0c0; }
+.mode-card:hover { border-color: #ffd97a; }
+.mode-card.on { border-color: #ffd97a; background: #2a3047; }
+.mode-card.on b { color: #ffd97a; }
 .deck-section { margin: 14px 0 6px; text-align: left; }
 .deck-section h4 { color: #cfd6df; margin-bottom: 8px; font-size: 13px; }
 .card-grid { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -1,7 +1,7 @@
 // ===== 基础类型定义 =====
 
-/** 阵营：0=玩家 1=敌人 2=野怪(中立) */
-export type Faction = 0 | 1 | 2;
+/** 阵营：0=玩家 1=敌人 2=野怪(中立)；P5 团战：3/5=玩家方队友 4/6=敌方队友 */
+export type Faction = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export type UnitKind = 'worker' | 'melee' | 'ranged' | 'siege' | 'hero';
 export type BuildingKind =

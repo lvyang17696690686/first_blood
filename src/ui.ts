@@ -172,7 +172,8 @@ export class UI {
     // 资源点（P2：被占领的矿按归属着色）
     for (const n of this.game.resourceNodes.values()) {
       if (n.amount <= 0) continue;
-      ctx.fillStyle = n.owner === 0 ? '#55dd55' : n.owner === 1 ? '#dd5555' : '#ffd34d';
+      const ot = this.game.teams[n.owner];
+      ctx.fillStyle = n.owner >= 0 && ot === this.game.teams[0] ? '#55dd55' : n.owner >= 0 && n.owner !== 2 ? '#dd5555' : '#ffd34d';
       ctx.fillRect(n.x * s - 2, n.y * s - 2, 4, 4);
     }
     // 中立据点始终显示归属色（P2 地标）
@@ -188,7 +189,7 @@ export class UI {
     // 建筑
     for (const b of this.game.buildings) {
       if (b.dead) continue;
-      if (b.faction !== 0 && !b.seenBy[0]) continue;
+      if (!this.game.sameTeam(b.faction, 0) && !b.seenBy[0]) continue;
       ctx.fillStyle = FACTION_COLORS[b.faction];
       const size = b.def.kind === 'main' ? 7 : 5;
       ctx.fillRect(b.x * s - size / 2, b.y * s - size / 2, size, size);
@@ -196,8 +197,8 @@ export class UI {
     // 单位
     for (const u of this.game.units) {
       if (u.dead) continue;
-      if (u.faction !== 0 && !this.fogVisible(u.x, u.y)) continue;
-      if (u.faction === 0 && u.def.kind === 'worker') continue; // 不画工人，减少噪点
+      if (!this.game.sameTeam(u.faction, 0) && !this.fogVisible(u.x, u.y)) continue;
+      if (this.game.sameTeam(u.faction, 0) && u.def.kind === 'worker') continue; // 不画己方工人，减少噪点
       ctx.fillStyle = FACTION_COLORS[u.faction];
       ctx.fillRect(u.x * s - 1.5, u.y * s - 1.5, 3, 3);
     }
@@ -241,7 +242,7 @@ export class UI {
       const e = sel[0];
       if (e instanceof Unit) {
         const u = e;
-        let html = `<h3>${u.def.name}</h3><div class="sub">${FACTION_COLORS && (u.faction === 0 ? '我方' : u.faction === 1 ? '敌方' : '野怪')} · 等级${u.def.tier}</div>`;
+        let html = `<h3>${u.def.name}</h3><div class="sub">${u.faction === 0 ? '我方' : this.game.sameTeam(u.faction, 0) ? '队友' : u.faction === 2 ? '野怪' : '敌方'} · 等级${u.def.tier}</div>`;
         html += `<div class="row">生命 ${Math.ceil(u.hp)}/${u.maxHp} · 攻击 ${Math.round(u.effDmg())} · 护甲 ${u.armor} · 射程 ${Math.round(u.range)}</div>`;
         if (u.shieldHp > 0) html += `<div class="row" style="color:#9fd8ff">护盾 ${Math.ceil(u.shieldHp)}</div>`;
         const tl = traitLabels(u.def.traits);
@@ -261,7 +262,7 @@ export class UI {
       }
       if (e instanceof Building) {
         const b = e;
-        let html = `<h3>${b.def.name}</h3><div class="sub">${b.faction === 0 ? '我方' : '敌方'}${b.built ? '' : ' · 建造中 ' + Math.round(b.buildProgress * 100) + '%'}</div>`;
+        let html = `<h3>${b.def.name}</h3><div class="sub">${b.faction === 0 ? '我方' : this.game.sameTeam(b.faction, 0) ? '队友' : b.faction === 2 ? '中立' : '敌方'}${b.built ? '' : ' · 建造中 ' + Math.round(b.buildProgress * 100) + '%'}</div>`;
         html += `<div class="row">生命 ${Math.ceil(b.hp)}/${b.maxHp} · 护甲 ${b.armor}</div>`;
         if (b.def.supply) html += `<div class="row">人口 +${b.def.supply}</div>`;
         if (b.def.crystalRate) html += `<div class="row">原石产量 ${b.def.crystalRate}/秒</div>`;

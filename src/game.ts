@@ -54,6 +54,8 @@ export interface GameOptions {
   decks?: (Deck | null)[];
   /** P3 各阵营种族（null = 精灵默认） */
   races?: (Race | null)[];
+  /** P5 队伍规模（1=1v1 默认, 2=2v2, 3=3v3） */
+  teamSize?: 1 | 2 | 3;
   /** P5 从存档恢复（跳过 setup） */
   load?: SaveData;
 }
@@ -87,6 +89,7 @@ export interface SaveData {
   time: number;
   teamSize: number;
   teams: number[];
+  startSlot: number[];
   races: Race[];
   decks: (Deck | null)[];
   factions: { gold: number; crystal: number; tech: 1 | 2 | 3; unitTech: Record<string, number> }[];
@@ -208,6 +211,8 @@ export class Game {
   races: Race[] = ['elf', 'elf'];
   /** P5 队伍规模（1=1v1, 2=2v2, 3=3v3） */
   teamSize = 1;
+  /** AI 团队共享波次目标（阵营 → 集结点，供队友 AI 跟随集结） */
+  aiWaves = new Map<number, { target: { x: number; y: number }; since: number }>();
   /** P5 阵营 → 队伍（0=玩家方 1=敌方 -1=野怪） */
   teams: number[] = [0, 1, -1];
   /** P5 阵营 → 地图出生点槽位索引 */
@@ -240,13 +245,32 @@ export class Game {
   private nodeIdSeq = 1;
 
   constructor(options?: GameOptions) {
-    if (options?.decks) this.decks = options.decks;
+    // P5：阵营数量 = 2×队伍规模 + 野怪；faction 编号 0=P1 1=E1 2=野怪 3=P2 4=E2 5=P3 6=E3
+    const nF = 2 * (options?.teamSize ?? 1) + 1;
+    this.teamSize = options?.teamSize ?? 1;
+    this.factions = Array.from({ length: nF }, () => ({ gold: 0, crystal: 0, tech: 1 as 1 | 2 | 3, unitTech: {} }));
+    this.decks = new Array(nF).fill(null);
+    this.races = new Array(nF).fill('elf');
+    this.teams = [];
+    this.startSlot = [];
+    // 地图出生点排列：[P1..Pn, E1..En]（前 teamSize 个=玩家方，其余=敌方）
+    let pSlot = 0, eSlot = this.teamSize;
+    for (let i = 0; i < nF; i++) {
+      if (i === 2) { this.teams.push(-1); this.startSlot.push(0); continue; }
+      const team = i < 2 ? i : (i - 3) % 2 === 0 ? 0 : 1;
+      this.teams.push(team);
+      this.startSlot.push(team === 0 ? pSlot++ : eSlot++);
+    }
+    if (options?.decks) {
+      for (let i = 0; i < Math.min(options.decks.length, nF); i++) this.decks[i] = options.decks[i];
+    }
     if (options?.races) {
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < Math.min(options.races.length, nF); i++) {
         const r = options.races[i];
         if (r) this.races[i] = r;
       }
     }
+    this.map = new GameMap(20260927, this.teamSize);
     this.fog = new Uint8Array(this.map.w * this.map.h);
     if (options?.load) this.restoreFrom(options.load);
     else this.setup();
@@ -270,9 +294,10 @@ export class Game {
       node.guarded = true;
       node.income = MINE_INCOME;
     }
-    // 出生：主基地 + 5 工人（按种族选择建筑/单位，P3）
-    for (let f = 0 as Faction; f <= 1; f = (f + 1) as Faction) {
-      const sp = this.map.startPositions[f];
+    // 出生：主基地 + 5 工人（P5：所有非野怪阵营，按种族选择建筑/单位）
+    for (let f = 0 as Faction; f < this.factions.length; f = (f + 1) as Faction) {
+      if (f === 2) continue;
+      const sp = this.map.startPositions[this.startSlot[f]];
       const race = this.races[f];
       const mainDef = BUILDINGS[RACE_BUILDINGS[race].main];
       const hall = new Building(mainDef, f as Faction,
@@ -344,6 +369,7 @@ export class Game {
       time: this.time,
       teamSize: this.teamSize,
       teams: [...this.teams],
+      startSlot: [...this.startSlot],
       races: [...this.races],
       decks: this.decks.map(k => (k ? { units: [...k.units], heroes: [...k.heroes] } : null)),
       factions: this.factions.map(f => ({ ...f, unitTech: { ...f.unitTech } })),
@@ -390,6 +416,7 @@ export class Game {
     resetEntityIds(); resetNodeIds(); resetOrbIds();
     this.teamSize = d.teamSize ?? 1;
     this.teams = [...d.teams];
+    this.startSlot = [...(d.startSlot ?? this.startSlot)];
     this.races = [...d.races];
     this.decks = d.decks.map(k => (k ? { units: [...k.units], heroes: [...k.heroes] } : null));
     this.factions = d.factions.map(f => ({ ...f, unitTech: { ...f.unitTech } }));
@@ -449,7 +476,7 @@ export class Game {
       n.maxAmount = sn.maxAmount;
       n.workers = [...sn.workers];
       n.depleted = sn.depleted;
-      n.owner = sn.owner as -1 | 0 | 1;
+      n.owner = sn.owner;
       n.guarded = sn.guarded;
       n.income = sn.income;
       this.resourceNodes.set(n.id, n);
@@ -485,7 +512,7 @@ export class Game {
     let best: Entity | null = null;
     let bd = Infinity;
     for (const e of this.queryBuf) {
-      if (e.dead || e.faction === faction) continue;
+      if (e.dead || this.sameTeam(e.faction, faction)) continue;
       if (e instanceof Unit && e.flying && !canAir) continue; // 打不到飞行单位
       // P2 据点只能占领不能攻击，不作为索敌目标
       if (e instanceof Building && (e as Building).def.kind === 'stronghold') continue;
@@ -501,7 +528,7 @@ export class Game {
     let best: Entity | null = null;
     let bh = Infinity;
     for (const e of this.queryBuf) {
-      if (e.dead || e.faction === faction || !(e instanceof Unit)) continue;
+      if (e.dead || this.sameTeam(e.faction, faction) || !(e instanceof Unit)) continue;
       if (e.flying && !canAir) continue;
       if (e.hp < bh) { bh = e.hp; best = e; }
     }
@@ -555,6 +582,9 @@ export class Game {
     const f = this.factions[faction];
     return f.gold >= gold && f.crystal >= crystal;
   }
+
+  /** P5 同队判定（含自身；野怪同队互不攻击） */
+  sameTeam(a: Faction, b: Faction): boolean { return this.teams[a] === this.teams[b]; }
 
   spend(faction: Faction, gold: number, crystal: number) {
     const f = this.factions[faction];
@@ -893,9 +923,9 @@ export class Game {
   private applySplash(source: Entity | null, x: number, y: number, dmg: number, radius: number) {
     this.spatial.queryCircle(x, y, radius, this.queryBuf);
     const targets = this.queryBuf.slice();
-    const sf = source ? source.faction : -1;
+    const st = source ? this.teams[source.faction] : -2;
     for (const o of targets) {
-      if (o.dead || o.faction === sf) continue;
+      if (o.dead || (st !== -2 && this.teams[o.faction] === st)) continue;
       if (o instanceof Unit && o.flying) continue;
       o.hp -= Math.max(1, dmg * 0.5 - o.armor);
       o.hitFlash = 0.12;
@@ -917,7 +947,7 @@ export class Game {
     this.spatial.queryCircle(u.x, u.y, radius, this.queryBuf);
     const targets = this.queryBuf.slice();
     for (const e of targets) {
-      if (e.dead || e === u || e.faction === u.faction) continue;
+      if (e.dead || e === u || this.sameTeam(e.faction, u.faction)) continue;
       this.dealDamage(u, e, dmg);
     }
     if (!u.dead) this.killEntity(u, null);
@@ -930,13 +960,17 @@ export class Game {
     if (e instanceof Building) {
       this.map.blockRect(e.tx, e.ty, e.w, e.h, 0);
       this.effects.push({ type: 'ring', x: e.x, y: e.y, radius: e.radius, life: 0.5, maxLife: 0.5, color: 0xff8844 });
-      // 主基地被摧毁 → 胜负
+      // 主基地被摧毁 → 该队所有主基地倒下才结算胜负
       if (e.def.kind === 'main') {
-        const loser = e.faction;
-        this.over = { win: loser === 1 };
-        this.onVictory(this.over.win);
-        if (loser === 0) this.onLog('生命古树被摧毁…');
-        else this.onLog('敌方主基地被摧毁！');
+        const loserTeam = this.teams[e.faction];
+        const teamHasMain = this.buildings.some(b =>
+          !b.dead && b.def.kind === 'main' && this.teams[b.faction] === loserTeam);
+        if (!teamHasMain) {
+          this.over = { win: loserTeam !== this.teams[0] };
+          this.onVictory(this.over.win);
+          if (loserTeam === this.teams[0]) this.onLog('主基地被摧毁…');
+          else this.onLog('敌方主基地全部倒下！');
+        }
       }
       return;
     }
@@ -944,7 +978,7 @@ export class Game {
     // 掉落奖励
     if (killer) {
       const kf = killer.faction;
-      if (kf !== u.faction && kf !== 2) {
+      if (kf !== 2 && !this.sameTeam(kf, u.faction)) {
         if (u.isCreep) {
           this.factions[kf].gold += u.creepBounty.gold;
           this.factions[kf].crystal += u.creepBounty.crystal;
@@ -954,7 +988,7 @@ export class Game {
         // 附近友方英雄分经验
         this.spatial.queryCircle(u.x, u.y, 350, this.queryBuf);
         const heroes = this.queryBuf.filter(o =>
-          o instanceof Unit && !o.dead && o.faction === kf && (o as Unit).def.kind === 'hero') as Unit[];
+          o instanceof Unit && !o.dead && this.sameTeam(o.faction, kf) && (o as Unit).def.kind === 'hero') as Unit[];
         if (heroes.length > 0) {
           const share = Math.max(1, Math.round((u.isCreep ? u.creepBounty.xp : u.def.bounty) / heroes.length));
           for (const h of heroes) h.gainXp(share);
@@ -979,8 +1013,8 @@ export class Game {
     }
     // P2：大型野怪（巨魔/Boss）被玩家阵营击杀 → 转为击杀方单位推线
     if (u.isCreep && (u.def.id === 'troll' || u.def.id === 'boss') &&
-        killer && killer.faction <= 1) {
-      this.spawnConvertedCreep(u, killer.faction as 0 | 1);
+        killer && killer.faction !== 2) {
+      this.spawnConvertedCreep(u, killer.faction);
     }
     // 死亡分裂
     const tr = u.def.traits;
@@ -1022,12 +1056,13 @@ export class Game {
     // 英雄死亡 → 计时复活
     if (u.def.kind === 'hero' && u.faction !== 2) {
       this.deadHeroes.push({ faction: u.faction, defId: u.def.id, timer: HERO_RESPAWN });
-      this.onLog(u.faction === 0 ? '英雄阵亡，即将复活' : '敌方英雄阵亡');
+      this.onLog(u.faction === 0 ? '英雄阵亡，即将复活'
+        : this.sameTeam(u.faction, 0) ? '队友英雄阵亡' : '敌方英雄阵亡');
     }
   }
 
   /** P2：巨魔/Boss 转为击杀方单位，沿中路推向敌方基地 */
-  private spawnConvertedCreep(creep: Unit, faction: 0 | 1) {
+  private spawnConvertedCreep(creep: Unit, faction: Faction) {
     const src = CREEPS[creep.def.id as 'troll' | 'boss'];
     if (!src) return;
     const udef: UnitDef = {
@@ -1039,12 +1074,21 @@ export class Game {
     };
     const u = new Unit(udef, faction, creep.x, creep.y);
     this.units.push(u);
-    // 中路固定路线：先推向地图中心，抵达后自动索敌；这里直接攻击移动到敌方主基地（寻路沿中路对角线）
-    const enemyMain = this.getMain(faction === 0 ? 1 : 0);
+    // 中路固定路线：推向最近的敌方主基地（P5：队伍内任一敌方）
+    const foeTeam = 1 - this.teams[faction];
+    let enemyMain: Building | null = null;
+    let bd = Infinity;
+    for (const b of this.buildings) {
+      if (b.dead || b.def.kind !== 'main' || this.teams[b.faction] !== foeTeam) continue;
+      const d = Math.hypot(b.x - creep.x, b.y - creep.y);
+      if (d < bd) { bd = d; enemyMain = b; }
+    }
     const mid = { x: (this.map.w * TILE) / 2, y: (this.map.h * TILE) / 2 };
-    u.order = { type: 'attackMove', target: enemyMain ? { x: enemyMain.x, y: enemyMain.y } : mid };
-    u.resume = { type: 'attackMove', target: enemyMain ? { x: enemyMain.x, y: enemyMain.y } : mid };
-    this.onLog(faction === 0 ? `${udef.name} 加入我方，向敌方基地推进！` : `敌方狂暴${src.name}向我方推进！`);
+    const goal = enemyMain ? { x: enemyMain.x, y: enemyMain.y } : mid;
+    u.order = { type: 'attackMove', target: goal };
+    u.resume = { type: 'attackMove', target: goal };
+    this.onLog(faction === 0 ? `${udef.name} 加入我方，向敌方基地推进！`
+      : this.sameTeam(faction, 0) ? `队友的${udef.name}加入战斗！` : `敌方狂暴${src.name}向我方推进！`);
   }
 
   /** 在世界坐标生成单位（地面单位自动找最近可走格） */
@@ -1085,12 +1129,13 @@ export class Game {
   }
 
   private applyAreaSkill(hero: Unit, x: number, y: number, sk: HeroSkillDef) {
+    const ht = this.teams[hero.faction]; // 英雄所属队伍（队友共享增益判定）
     // P3 自身增益（狂暴）：只作用于英雄自身
     if (sk.selfBuff) {
       hero.rageTimer = Math.max(hero.rageTimer, sk.selfBuff.dur);
       hero.rageAmt = sk.selfBuff.atkSpeed;
       this.effects.push({ type: 'ring', x: hero.x, y: hero.y, radius: 30, life: 0.45, maxLife: 0.45, color: 0xff6644 });
-      if (hero.faction === 0) this.onLog(`${hero.def.name} 进入狂暴！`);
+      if (this.sameTeam(hero.faction, 0)) this.onLog(`${hero.def.name} 进入狂暴！`);
       return;
     }
     // P3 多段落雷（雷暴）：调度定时落雷
@@ -1124,7 +1169,7 @@ export class Game {
         .sort((a, b) => a.d - b.d)
         .slice(0, sk.revive.count);
       if (near.length === 0) {
-        if (hero.faction === 0) this.onLog('亡者复苏：附近没有尸体');
+        if (this.sameTeam(hero.faction, 0)) this.onLog('亡者复苏：附近没有尸体');
         return;
       }
       const def = UNITS['skel'];
@@ -1136,7 +1181,7 @@ export class Game {
           this.effects.push({ type: 'ring', x: o.c.x, y: o.c.y, radius: 24, life: 0.5, maxLife: 0.5, color: 0xc8c8b8 });
         }
       }
-      if (hero.faction === 0) this.onLog(`亡者复苏：${near.length} 名骷髅战士从坟墓中爬起！`);
+      if (this.sameTeam(hero.faction, 0)) this.onLog(`亡者复苏：${near.length} 名骷髅战士从坟墓中爬起！`);
       return;
     }
     // P4 生命虹吸：汲取最近敌人，等量治疗自身
@@ -1144,7 +1189,7 @@ export class Game {
       let best: Unit | null = null; let bd = Infinity;
       this.spatial.queryCircle(hero.x, hero.y, sk.radius, this.queryBuf2);
       for (const e of this.queryBuf2) {
-        if (e.dead || !(e instanceof Unit) || e.faction === hero.faction || e.flying) continue;
+        if (e.dead || !(e instanceof Unit) || this.teams[e.faction] === ht || e.flying) continue;
         const d = hero.distTo(e);
         if (d < bd) { bd = d; best = e; }
       }
@@ -1152,7 +1197,7 @@ export class Game {
       this.dealDamage(hero, best, sk.power);
       hero.hp = Math.min(hero.maxHp, hero.hp + sk.power);
       this.effects.push({ type: 'ring', x: best.x, y: best.y, radius: 26, life: 0.4, maxLife: 0.4, color: 0xa040c0 });
-      if (hero.faction === 0) this.onLog(`生命虹吸：汲取 ${best.def.name} ${sk.power} 点生命`);
+      if (this.sameTeam(hero.faction, 0)) this.onLog(`生命虹吸：汲取 ${best.def.name} ${sk.power} 点生命`);
       return;
     }
     // P4 俯冲突进：向目标点位移并造成范围伤害
@@ -1166,7 +1211,7 @@ export class Game {
       this.effects.push({ type: 'ring', x: hero.x, y: hero.y, radius: sk.radius, life: 0.45, maxLife: 0.45, color: 0xff6a4a });
       this.spatial.queryCircle(hero.x, hero.y, sk.radius, this.queryBuf2);
       for (const e of this.queryBuf2.slice()) {
-        if (e.dead || e === hero || e.faction === hero.faction) continue;
+        if (e.dead || e === hero || this.teams[e.faction] === ht) continue;
         this.dealDamage(hero, e, sk.power);
       }
       return;
@@ -1175,7 +1220,7 @@ export class Game {
     if (sk.fear) {
       this.spatial.queryCircle(x, y, sk.radius, this.queryBuf2);
       for (const e of this.queryBuf2) {
-        if (e.dead || !(e instanceof Unit) || e.faction === hero.faction) continue;
+        if (e.dead || !(e instanceof Unit) || this.teams[e.faction] === ht) continue;
         e.fearTimer = Math.max(e.fearTimer, sk.fear.dur);
       }
       this.effects.push({ type: 'ring', x, y, radius: sk.radius, life: 0.5, maxLife: 0.5, color: 0x6040a0 });
@@ -1186,10 +1231,10 @@ export class Game {
       this.effects.push({ type: 'ring', x: hero.x, y: hero.y, radius: sk.radius, life: 0.6, maxLife: 0.6, color: 0xffaa33 });
       this.spatial.queryCircle(hero.x, hero.y, sk.radius, this.queryBuf2);
       for (const e of this.queryBuf2.slice()) {
-        if (e.dead || e === hero || e.faction === hero.faction) continue;
+        if (e.dead || e === hero || this.teams[e.faction] === ht) continue;
         this.dealDamage(hero, e, sk.power);
       }
-      if (hero.faction === 0) this.onLog(`${hero.def.name} 化作死亡绽放！`);
+      if (this.sameTeam(hero.faction, 0)) this.onLog(`${hero.def.name} 化作死亡绽放！`);
       this.killEntity(hero, null);
       return;
     }
@@ -1199,12 +1244,13 @@ export class Game {
       let best: Unit | null = null;
       let bd = Infinity;
       for (const e of this.queryBuf) {
-        if (e.dead || !(e instanceof Unit) || e.faction === hero.faction) continue;
+        if (e.dead || !(e instanceof Unit) || this.teams[e.faction] === ht) continue;
         if (e.def.kind === 'hero') continue; // 英雄意志坚定，不可操控
         const d = Math.hypot(e.x - x, e.y - y);
         if (d < bd) { bd = d; best = e; }
       }
       if (best) {
+        const victimTeam = this.teams[best.faction];
         if (best.originalFaction === null) best.originalFaction = best.faction;
         best.faction = hero.faction;
         best.charmedTimer = sk.charm.dur;
@@ -1213,8 +1259,8 @@ export class Game {
         best.path = null;
         best.selected = false;
         this.effects.push({ type: 'ring', x: best.x, y: best.y, radius: 26, life: 0.5, maxLife: 0.5, color: 0xc77dff });
-        if (hero.faction === 0) this.onLog(`灵魂操控：${best.def.name} 为你而战 ${Math.round(sk.charm.dur)} 秒！`);
-        else this.onLog('敌方英雄操控了我方单位！');
+        if (this.sameTeam(hero.faction, 0)) this.onLog(`灵魂操控：${best.def.name} 为你而战 ${Math.round(sk.charm.dur)} 秒！`);
+        else if (victimTeam === this.teams[0]) this.onLog('敌方英雄操控了我方单位！');
       }
       return;
     }
@@ -1226,7 +1272,7 @@ export class Game {
     const targets = this.queryBuf.slice();
     if (sk.targetAllies) {
       for (const e of targets) {
-        if (e.dead || e.faction !== hero.faction || !(e instanceof Unit)) continue;
+        if (e.dead || this.teams[e.faction] !== ht || !(e instanceof Unit)) continue;
         const u = e;
         if (sk.shield) {
           u.shieldHp = Math.min(u.maxHp, u.shieldHp + sk.shield);
@@ -1238,7 +1284,7 @@ export class Game {
       }
     } else {
       for (const e of targets) {
-        if (e.dead || e.faction === hero.faction) continue;
+        if (e.dead || this.teams[e.faction] === ht) continue;
         // P3 凝视降攻
         if (sk.atkDebuff && e instanceof Unit) {
           e.atkDebuffTimer = Math.max(e.atkDebuffTimer, sk.atkDebuff.dur);
@@ -1263,7 +1309,7 @@ export class Game {
     this.spatial.queryCircle((hero.x + ex) / 2, (hero.y + ey) / 2, len / 2 + wid, this.queryBuf);
     const targets = this.queryBuf.slice();
     for (const e of targets) {
-      if (e.dead || e.faction === hero.faction) continue;
+      if (e.dead || this.sameTeam(e.faction, hero.faction)) continue;
       const er = e instanceof Unit ? e.radius : (e as Building).radius;
       if (pointSegDist(e.x, e.y, hero.x, hero.y, ex, ey) <= wid + er) {
         this.dealDamage(hero, e, sk.power);
@@ -1308,7 +1354,7 @@ export class Game {
       if (aura) {
         this.spatial.queryCircle(s.x, s.y, aura.radius, this.queryBuf2);
         for (const e of this.queryBuf2) {
-          if (e.dead || e === s || !(e instanceof Unit) || e.faction !== s.faction) continue;
+          if (e.dead || e === s || !(e instanceof Unit) || this.teams[e.faction] !== this.teams[s.faction]) continue;
           // P4 骷髅系光环：仅对骨架单位生效
           if (aura.skeletonsOnly && !e.def.skeleton) continue;
           e.auraAtk += aura.atk ?? 0;
@@ -1320,7 +1366,7 @@ export class Game {
       if (heal) {
         this.spatial.queryCircle(s.x, s.y, heal.radius, this.queryBuf2);
         for (const e of this.queryBuf2) {
-          if (e.dead || !(e instanceof Unit) || e.faction !== s.faction) continue;
+          if (e.dead || !(e instanceof Unit) || this.teams[e.faction] !== this.teams[s.faction]) continue;
           if (e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + heal.rate * interval);
         }
       }
@@ -1345,16 +1391,16 @@ export class Game {
         }
     };
     for (const u of this.units) {
-      if (u.dead || u.faction !== 0) continue;
+      if (u.dead || !this.sameTeam(u.faction, 0)) continue; // 队伍共享视野
       reveal(u.x, u.y, u.isCreep ? 0 : 230);
     }
     for (const b of this.buildings) {
-      if (b.dead || b.faction !== 0) continue;
+      if (b.dead || !this.sameTeam(b.faction, 0)) continue;
       reveal(b.x, b.y, 280);
       // 敌方建筑被看到 → 记忆
       this.spatial.queryCircle(b.x, b.y, 300, this.queryBuf);
       for (const e of this.queryBuf) {
-        if (e instanceof Building && e.faction === 1) e.seenBy[0] = true;
+        if (e instanceof Building && e.faction !== 2 && !this.sameTeam(e.faction, 0)) e.seenBy[0] = true;
       }
     }
     // P2 侦查区域：短暂开雾
@@ -1375,12 +1421,12 @@ export class Game {
   canCapture(faction: Faction, target: ResourceNode | Building): { ok: boolean; reason: string } {
     if (target instanceof Building) {
       if (target.dead || target.def.kind !== 'stronghold') return { ok: false, reason: '' };
-      if (target.faction === faction) return { ok: false, reason: '已占领' };
+      if (this.sameTeam(target.faction, faction)) return { ok: false, reason: '已占领' };
     } else {
       // 仅中场带守军产金的中立矿可占领（普通矿点零收益，策划文档 §P2）
       if (target.income <= 0) return { ok: false, reason: '此矿脉无法占领' };
       if (target.depleted && target.owner === -1) return { ok: false, reason: '矿脉枯竭' };
-      if (target.owner === faction) return { ok: false, reason: '已占领' };
+      if (this.sameTeam(target.owner as Faction, faction)) return { ok: false, reason: '已占领' };
     }
     const x = target.x, y = target.y;
     let ownNear = false;
@@ -1388,7 +1434,7 @@ export class Game {
       if (u.dead || u.isCreep) continue;
       const d = Math.hypot(u.x - x, u.y - y);
       if (d > CAPTURE_RADIUS) continue;
-      if (u.faction === faction) ownNear = true;
+      if (this.sameTeam(u.faction, faction)) ownNear = true;
       else if (u.faction !== 2) return { ok: false, reason: '敌方单位在附近' };
     }
     if (!ownNear) return { ok: false, reason: '需要己方单位靠近' };
@@ -1404,21 +1450,21 @@ export class Game {
   /** 尝试占领：成功则扣费并转移归属 */
   tryCapture(faction: Faction, target: ResourceNode | Building): boolean {
     const c = this.canCapture(faction, target);
-    if (!c.ok) { if (faction === 0 && c.reason) this.onLog(`无法占领：${c.reason}`); return false; }
+    if (!c.ok) { if (this.sameTeam(faction, 0) && c.reason) this.onLog(`无法占领：${c.reason}`); return false; }
     const cost = this.captureCost(target);
     if (!this.spend(faction, cost, 0)) {
-      if (faction === 0) this.onLog('资源不足');
+      if (this.sameTeam(faction, 0)) this.onLog('资源不足');
       return false;
     }
     if (target instanceof Building) {
       target.faction = faction as Faction;
       target.seenBy[0] = true;
       target.hp = target.maxHp;
-      if (faction === 0) this.onLog(`已占领${target.def.name}（-${cost}金）`);
+      if (this.sameTeam(faction, 0)) this.onLog(`已占领${target.def.name}（-${cost}金）`);
       else this.onLog('敌方占领了据点！');
     } else {
-      target.owner = faction as -1 | 0 | 1;
-      if (faction === 0) this.onLog(`已占领中立金矿（-${cost}金，+${target.income}金/秒）`);
+      target.owner = faction;
+      if (this.sameTeam(faction, 0)) this.onLog(`已占领中立金矿（-${cost}金，+${target.income}金/秒）`);
       else this.onLog('敌方占领了中立金矿！');
     }
     this.effects.push({ type: 'ring', x: target.x, y: target.y, radius: 60, life: 0.5, maxLife: 0.5, color: 0xffd97a });
@@ -1430,12 +1476,12 @@ export class Game {
     let best: ResourceNode | Building | null = null;
     let bd = Infinity;
     for (const n of this.resourceNodes.values()) {
-      if (n.owner === faction || (n.depleted && n.owner === -1)) continue;
+      if (this.sameTeam(n.owner as Faction, faction) || (n.depleted && n.owner === -1)) continue;
       const d = Math.hypot(n.x - x, n.y - y);
       if (d < CAPTURE_RADIUS && d < bd) { bd = d; best = n; }
     }
     for (const b of this.buildings) {
-      if (b.dead || b.def.kind !== 'stronghold' || b.faction === faction) continue;
+      if (b.dead || b.def.kind !== 'stronghold' || this.sameTeam(b.faction, faction)) continue;
       const d = Math.hypot(b.x - x, b.y - y);
       if (d < CAPTURE_RADIUS && d < bd) { bd = d; best = b; }
     }
@@ -1447,7 +1493,7 @@ export class Game {
     void faction;
     this.reveals.push({ x, y, r: REVEAL_RADIUS, timer: REVEAL_DURATION });
     this.updateFog(true);
-    if (faction === 0) this.onLog('侦查已释放');
+    if (this.sameTeam(faction, 0)) this.onLog('侦查已释放');
   }
 
   // ===== P2 魔法球 =====
@@ -1472,7 +1518,7 @@ export class Game {
     if (type === 'haste') u.hasteTimer = BUFF_DURATION;
     else if (type === 'frenzy') u.frenzyTimer = BUFF_DURATION;
     else this.deposit(u.faction, GOLD_RAIN_AMOUNT);
-    if (u.faction === 0) this.onLog(`拾取${names[type]}魔法球${type === 'goldrain' ? `（+${GOLD_RAIN_AMOUNT}金）` : ''}`);
+    if (this.sameTeam(u.faction, 0)) this.onLog(`拾取${names[type]}魔法球${type === 'goldrain' ? `（+${GOLD_RAIN_AMOUNT}金）` : ''}`);
     this.effects.push({ type: 'ring', x: u.x, y: u.y, radius: 20, life: 0.3, maxLife: 0.3, color: 0xb39bf5 });
   }
 
@@ -1488,7 +1534,7 @@ export class Game {
     u.path = null;
     u.selected = false;
     this.effects.push({ type: 'ring', x: u.x, y: u.y, radius: 24, life: 0.4, maxLife: 0.4, color: 0xc77dff });
-    if (u.faction === 0) this.onLog(`${u.def.name} 摆脱了灵魂操控！`);
+    if (this.sameTeam(u.faction, 0)) this.onLog(`${u.def.name} 摆脱了灵魂操控！`);
   }
 
   // ===== P3 落雷/地面DoT =====
@@ -1501,12 +1547,12 @@ export class Game {
         ps.timer = ps.sk.strikes?.interval ?? 0.5;
         const hero = this.byId(ps.heroId);
         const src = hero instanceof Unit && !hero.dead ? hero : null;
-        const sf = src ? src.faction : 2;
+        const st = src ? this.teams[src.faction] : -1;
         this.effects.push({ type: 'ring', x: ps.x, y: ps.y, radius: ps.sk.radius, life: 0.28, maxLife: 0.28, color: 0xaee6ff });
         this.spatial.queryCircle(ps.x, ps.y, ps.sk.radius, this.queryBuf);
         const targets = this.queryBuf.slice();
         for (const e of targets) {
-          if (e.dead || e.faction === sf) continue;
+          if (e.dead || this.teams[e.faction] === st) continue;
           this.dealDamage(src, e, ps.sk.power);
         }
       }
@@ -1527,7 +1573,7 @@ export class Game {
         this.spatial.queryCircle(z.x, z.y, z.r, this.queryBuf);
         const targets = this.queryBuf.slice();
         for (const e of targets) {
-          if (e.dead || e.faction === z.faction) continue;
+          if (e.dead || this.sameTeam(e.faction, z.faction)) continue;
           // P4 沙暴减速：每跳刷新减速计时
           if (z.slowAmt && e instanceof Unit) {
             e.slowTimer = Math.max(e.slowTimer, 0.7);
@@ -1617,7 +1663,7 @@ export class Game {
 
     // P2 占领矿产出
     for (const n of this.resourceNodes.values()) {
-      if (n.owner !== -1 && n.owner <= 1) this.deposit(n.owner, n.income * dt);
+      if (n.owner >= 0) this.deposit(n.owner as Faction, n.income * dt);
     }
 
     // 特效
@@ -1648,7 +1694,7 @@ export class Game {
         if (main) {
           const hero = new Unit(hdef, dh.faction, main.x, main.y + main.radius + 24);
           this.units.push(hero);
-          this.onLog(dh.faction === 0 ? `${hdef.name} 已复活` : `敌方 ${hdef.name} 复活`);
+          this.onLog(this.sameTeam(dh.faction, 0) ? `${hdef.name} 已复活` : `敌方 ${hdef.name} 复活`);
         }
         dh.timer = 9999; // 占位，稍后过滤
       }
@@ -1658,12 +1704,16 @@ export class Game {
     // 迷雾
     this.updateFog();
 
-    // 胜负兜底：无建筑无单位
+    // 胜负兜底：无建筑无单位（按队伍结算）
     if (!this.over) {
-      const pAlive = this.buildings.some(b => b.faction === 0) || this.units.some(u => u.faction === 0);
-      const eAlive = this.buildings.some(b => b.faction === 1) || this.units.some(u => u.faction === 1);
-      if (!pAlive) { this.over = { win: false }; this.onVictory(false); }
-      else if (!eAlive) { this.over = { win: true }; this.onVictory(true); }
+      const myTeam = this.teams[0];
+      const teamAlive = (t: number) =>
+        this.buildings.some(b => this.teams[b.faction] === t) ||
+        this.units.some(u => this.teams[u.faction] === t);
+      const meAlive = teamAlive(myTeam);
+      const foeAlive = teamAlive(1 - myTeam);
+      if (!meAlive) { this.over = { win: false }; this.onVictory(false); }
+      else if (!foeAlive) { this.over = { win: true }; this.onVictory(true); }
     }
   }
 }
