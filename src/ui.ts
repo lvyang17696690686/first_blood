@@ -232,6 +232,24 @@ export class UI {
 
   private renderInfo(sel: Entity[]) {
     if (sel.length === 0) {
+      // P5-c 战役：显示关卡目标与进度
+      const sc = this.game.scenario;
+      if (sc) {
+        let progress = '';
+        const obj = sc.objective;
+        if (obj.type === 'survive') {
+          const left = Math.max(0, Math.ceil(obj.time - this.game.time));
+          progress = `<div class="row" style="color:#ffd97a">剩余时间：<b>${left}s</b></div>`;
+        } else if (obj.type === 'capture') {
+          const owned = this.game.buildings.filter(b => !b.dead && b.def.kind === 'stronghold' && this.game.sameTeam(b.faction, 0)).length;
+          progress = `<div class="row" style="color:#ffd97a">已占领：<b>${owned}/${obj.strongholds}</b></div>`;
+        }
+        this.elInfo.innerHTML = `<h3>${sc.name}</h3>
+          <div class="sub">${sc.playerRace === 'elf' ? '精灵族' : sc.playerRace === 'blood' ? '血兽族' : '亡灵族'} · 战役模式</div>
+          <div class="row" style="color:#ffd97a">目标：${obj.text}</div>${progress}
+          <div class="row" style="color:#8b97a5">${sc.brief}</div>`;
+        return;
+      }
       this.elInfo.innerHTML = `<h3>第一滴血</h3>
         <div class="sub">精灵族 · 单机对抗 AI</div>
         <div class="row">目标：摧毁敌方生命古树。小心野怪营地，击杀可获得金币与原石。</div>

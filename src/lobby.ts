@@ -4,6 +4,7 @@ import {
   DECK_UNIT_POOL_UNDEAD, DECK_HERO_POOL_UNDEAD,
 } from './config';
 import type { Deck, Race } from './types';
+import { SCENARIOS } from './scenario';
 
 const LS_KEY = 'wc_decks_v1';
 
@@ -27,20 +28,26 @@ const RACES = [
   { id: 'undead', name: '亡灵族', desc: '不死亡灵军团：廉价海量、自爆、瘟疫与亡者复苏。', playable: true },
 ] as const;
 
-/** 出战卡组界面：主界面 → 选族 → 选卡 → 开战（P5：支持继续游戏） */
+/** 出战卡组界面：主界面 → 选族 → 选卡 → 开战（P5：支持继续游戏 / 战役 PVE） */
 export class Lobby {
   private root: HTMLDivElement;
   private onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void;
   private onContinue: (() => void) | null;
-  private step: 'race' | 'deck' = 'race';
+  private onCampaign: ((scenarioId: string) => void) | null;
+  private step: 'race' | 'deck' | 'campaign' = 'race';
   private race: Race = 'elf';
   private teamSize: 1 | 2 | 3 = 1;
   private selectedUnits = new Set<string>();
   private selectedHeroes = new Set<string>();
 
-  constructor(onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void, onContinue?: () => void) {
+  constructor(
+    onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void,
+    onContinue?: () => void,
+    onCampaign?: (scenarioId: string) => void,
+  ) {
     this.onStart = onStart;
     this.onContinue = onContinue ?? null;
+    this.onCampaign = onCampaign ?? null;
     this.root = document.createElement('div');
     this.root.id = 'lobby';
     document.getElementById('app')!.appendChild(this.root);
@@ -82,6 +89,7 @@ export class Lobby {
           </div>
         </div>
         ${this.onContinue ? '<button id="lobby-continue" class="lobby-btn continue">⏵ 继续上次游戏</button>' : ''}
+        <button id="lobby-campaign" class="lobby-btn continue">⚔ 战役模式（PVE 5 关）</button>
       </div>`;
     const cont = this.root.querySelector('#lobby-continue');
     cont?.addEventListener('click', () => {
@@ -89,6 +97,8 @@ export class Lobby {
       this.destroy();
       cb?.();
     });
+    const camp = this.root.querySelector('#lobby-campaign');
+    camp?.addEventListener('click', () => this.renderCampaign());
     this.root.querySelectorAll('.mode-card').forEach(el => {
       el.addEventListener('click', () => {
         this.teamSize = Number((el as HTMLElement).dataset.mode) as 1 | 2 | 3;
@@ -100,6 +110,37 @@ export class Lobby {
       el.addEventListener('click', () => {
         this.race = (el as HTMLElement).dataset.race as Race;
         this.renderDeck();
+      });
+    });
+  }
+
+  // ===== 战役关卡选择（P5-c） =====
+  private renderCampaign() {
+    this.step = 'campaign';
+    this.root.innerHTML = `
+      <div class="lobby-card wide">
+        <h1>战役模式</h1>
+        <p class="lobby-sub">固定敌方阵容 + 脚本事件 · 无需选卡（全兵种解锁）</p>
+        <div class="card-grid" style="justify-content:center">
+          ${SCENARIOS.map((s, i) => `
+            <div class="deck-card sc-card" data-sc="${s.id}" style="width:220px">
+              <i style="background:${['#2e7a4a', '#8a2e2e', '#c9992e', '#3a2e6a', '#6a3fd0'][i] ?? '#2e7a4a'}"></i>
+              <b>${s.name}</b>
+              <span>${s.objective.text}</span>
+              <span class="sc-brief">${s.brief}</span>
+            </div>`).join('')}
+        </div>
+        <div class="lobby-actions">
+          <button id="sc-back" class="lobby-btn">返回</button>
+        </div>
+      </div>`;
+    (this.root.querySelector('#sc-back') as HTMLButtonElement).addEventListener('click', () => this.renderRace());
+    this.root.querySelectorAll('.sc-card').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = (el as HTMLElement).dataset.sc!;
+        const cb = this.onCampaign;
+        this.destroy();
+        cb?.(id);
       });
     });
   }

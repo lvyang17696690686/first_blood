@@ -1,6 +1,7 @@
 import { STEP_DT } from './config';
 import { Game } from './game';
 import type { SaveData } from './game';
+import { SCENARIOS } from './scenario';
 import { Renderer } from './renderer';
 import { InputController, Camera } from './input';
 import { UI } from './ui';
@@ -19,6 +20,7 @@ interface StartOpts {
   race: Race;
   teamSize?: 1 | 2 | 3;
   load?: SaveData;
+  scenario?: string; // P5-c 战役关卡 id
 }
 
 function loadSave(): SaveData | null {
@@ -41,11 +43,16 @@ async function startGame(opts: StartOpts) {
   races[0] = opts.race;
   for (let f = 1; f < nF; f++) if (f !== 2) races[f] = aiRaces();
 
+  // P5-c 战役：敌方种族固定 + 关卡注入（读档时由 SaveData.scn 恢复）
+  const scenario = opts.load ? null : SCENARIOS.find(s => s.id === opts.scenario) ?? null;
+  if (scenario) races[1] = scenario.enemyRace;
+
   const game = new Game({
     decks: races.map(r => null), // 卡组由 AIController 随机生成；玩家卡组下面写回
     races: races as Race[],
     teamSize,
     load: opts.load, // P5 存档恢复（存在时忽略上面的初始配置）
+    scenario: scenario ?? undefined,
   });
   // 玩家卡组写回（读档时忽略）
   if (!opts.load) game.decks[0] = opts.deck;
@@ -124,7 +131,7 @@ async function startGame(opts: StartOpts) {
   });
 }
 
-// 开局流程：主界面 → 选模式/选族 → 选卡 → 开战（P5：支持继续游戏）
+// 开局流程：主界面 → 选模式/选族 → 选卡 → 开战（P5：支持继续游戏 / 战役 PVE）
 new Lobby(
   (deck, race, teamSize) => {
     startGame({ deck, race, teamSize }).catch(err => {
@@ -143,4 +150,14 @@ new Lobby(
         });
       }
     : undefined,
+  // P5-c 战役：关卡开战（无需选卡，玩家种族由关卡决定）
+  scenarioId => {
+    const s = SCENARIOS.find(x => x.id === scenarioId);
+    if (!s) return;
+    startGame({ deck: null, race: s.playerRace, teamSize: 1, scenario: s.id }).catch(err => {
+      console.error(err);
+      const el = document.getElementById('loading');
+      if (el) el.textContent = '加载失败：' + (err instanceof Error ? err.message : String(err));
+    });
+  },
 );

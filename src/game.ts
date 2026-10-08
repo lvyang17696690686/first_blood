@@ -12,6 +12,8 @@ import {
 } from './config';
 import type { CreepDef } from './config';
 import type { Faction, HeroSkillDef, UnitDef, Deck, Race, Order } from './types';
+import type { ScenarioDef } from './scenario';
+import { SCENARIOS, applyScenarioSetup, updateScenario } from './scenario';
 import { GameMap } from './map';
 import {
   Unit, Building, makeResourceNode, resetNodeIds, resetEntityIds, resetOrbIds, makeOrb,
@@ -56,6 +58,8 @@ export interface GameOptions {
   races?: (Race | null)[];
   /** P5 队伍规模（1=1v1 默认, 2=2v2, 3=3v3） */
   teamSize?: 1 | 2 | 3;
+  /** P5-c 战役关卡（存在时启用脚本事件与特殊胜利目标） */
+  scenario?: ScenarioDef;
   /** P5 从存档恢复（跳过 setup） */
   load?: SaveData;
 }
@@ -103,6 +107,10 @@ export interface SaveData {
   corpses: { x: number; y: number; defId: string; faction: Faction; timer: number }[];
   orbs: { id: number; type: OrbType; x: number; y: number; life: number; phase: number }[];
   seq: { e: number; n: number; o: number };
+  /** P5-c 战役关卡 id（null = 标准对局） */
+  scn?: string;
+  /** P5-c 已触发的波次数 */
+  sw?: number;
 }
 
 interface CreepCamp {
@@ -217,6 +225,10 @@ export class Game {
   teams: number[] = [0, 1, -1];
   /** P5 阵营 → 地图出生点槽位索引 */
   startSlot: number[] = [0, 1, 0];
+  /** P5-c 当前战役关卡（null = 标准对局） */
+  scenario: ScenarioDef | null = null;
+  /** P5-c 已触发的脚本波次数 */
+  scenarioWaveIdx = 0;
   spatial = new SpatialHash();
   fog: Uint8Array;
   fogVersion = 0;
@@ -264,6 +276,7 @@ export class Game {
     if (options?.decks) {
       for (let i = 0; i < Math.min(options.decks.length, nF); i++) this.decks[i] = options.decks[i];
     }
+    this.scenario = options?.scenario ?? null;
     if (options?.races) {
       for (let i = 0; i < Math.min(options.races.length, nF); i++) {
         const r = options.races[i];
@@ -325,6 +338,7 @@ export class Game {
       this.buildings.push(b);
     }
     this.updateFog(true);
+    applyScenarioSetup(this);
   }
 
   private spawnCreepCamp(tx: number, ty: number, size: 'small' | 'medium' | 'boss') {
@@ -408,6 +422,8 @@ export class Game {
       corpses: this.corpses.map(c => ({ ...c })),
       orbs: this.orbs.map(o => ({ id: o.id, type: o.type, x: o.x, y: o.y, life: o.life, phase: o.phase })),
       seq: { e: peekEntityId(), n: peekNodeId(), o: peekOrbId() },
+      scn: this.scenario?.id,
+      sw: this.scenarioWaveIdx,
     };
     return JSON.stringify(d);
   }
@@ -417,6 +433,8 @@ export class Game {
     this.teamSize = d.teamSize ?? 1;
     this.teams = [...d.teams];
     this.startSlot = [...(d.startSlot ?? this.startSlot)];
+    this.scenario = SCENARIOS.find(s => s.id === d.scn) ?? null;
+    this.scenarioWaveIdx = d.sw ?? 0;
     this.races = [...d.races];
     this.decks = d.decks.map(k => (k ? { units: [...k.units], heroes: [...k.heroes] } : null));
     this.factions = d.factions.map(f => ({ ...f, unitTech: { ...f.unitTech } }));
@@ -966,8 +984,12 @@ export class Game {
         const teamHasMain = this.buildings.some(b =>
           !b.dead && b.def.kind === 'main' && this.teams[b.faction] === loserTeam);
         if (!teamHasMain) {
-          this.over = { win: loserTeam !== this.teams[0] };
-          this.onVictory(this.over.win);
+          // P5-c：非 destroy 关卡拆除主基地不直接判胜（由目标判定结算）
+          const destroyMode = !this.scenario || this.scenario.objective.type === 'destroy';
+          if (destroyMode) {
+            this.over = { win: loserTeam !== this.teams[0] };
+            this.onVictory(this.over.win);
+          }
           if (loserTeam === this.teams[0]) this.onLog('主基地被摧毁…');
           else this.onLog('敌方主基地全部倒下！');
         }
@@ -1592,6 +1614,9 @@ export class Game {
     dt = STEP_DT;
     this.time += dt;
     this.fogTimer -= dt;
+
+    // P5-c 战役：波次增援 + 特殊胜利目标
+    if (updateScenario(this, dt)) return;
 
     // 空间哈希重建
     this.spatial.clear();
