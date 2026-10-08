@@ -8,6 +8,7 @@ import type { Vec2, Order } from './types';
 import { gameCtl, cycleSpeed } from './ctl';
 import { recCmd } from './replay';
 import type { OrdEntry } from './replay';
+import { audio } from './audio';
 
 export class Camera {
   x: number; y: number; // 屏幕中心对应的世界坐标
@@ -68,6 +69,9 @@ export class InputController {
   private middleDrag: Vec2 | null = null;
   /** P5-d 当前指令批次（录制中） */
   private ordBatch: OrdEntry[] | null = null;
+  /** P6 触屏多点跟踪（双指捏合缩放/平移） */
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinch: { dist: number; zoom: number; world: Vec2 } | null = null;
 
   /** 应用并录制单位指令（live 与回放共用同一最终状态） */
   private ord(u: Unit, order: Order, opts: { resume?: Order; gather?: 'null'; clearPath?: boolean } = {}) {
@@ -104,10 +108,21 @@ export class InputController {
 
     canvas.addEventListener('pointerdown', e => {
       canvas.setPointerCapture(e.pointerId);
+      this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
       this.mouse.sx = e.offsetX; this.mouse.sy = e.offsetY;
       this.updateWorldPos();
       this.mouse.down = true;
       this.mouse.button = e.button;
+
+      // P6 双指触屏：进入捏合模式（取消框选/点击），捏合对回放模式同样可用
+      if (this.pointers.size === 2) {
+        this.dragStart = null;
+        this.dragging = false;
+        this.mouse.down = false;
+        this.pinch = this.pinchStart();
+        return;
+      }
+      if (this.pointers.size > 2) return;
 
       // P5-d 回放模式：只允许中键拖动镜头
       if (this.game.replayMode) {
@@ -126,6 +141,7 @@ export class InputController {
           this.ui.setCursor('');
           recCmd('cast', unit.id, idx, this.mouse.wx, this.mouse.wy);
           unit.castSkillAt(this.game, idx, this.mouse.wx, this.mouse.wy);
+          audio.play('confirm');
           return;
         }
         if (this.attackMovePending) {
@@ -172,8 +188,12 @@ export class InputController {
     });
 
     canvas.addEventListener('pointermove', e => {
+      const p = this.pointers.get(e.pointerId);
+      if (p) { p.x = e.offsetX; p.y = e.offsetY; }
       this.mouse.sx = e.offsetX; this.mouse.sy = e.offsetY;
       this.updateWorldPos();
+      // P6 双指捏合：以起始中点对应的世界坐标为锚，缩放 + 平移
+      if (this.pinch && this.pointers.size >= 2) { this.applyPinch(); return; }
       if (this.middleDrag) {
         const dx = (e.offsetX - this.middleDrag.x) / this.camera.zoom;
         const dy = (e.offsetY - this.middleDrag.y) / this.camera.zoom;
@@ -189,6 +209,9 @@ export class InputController {
     });
 
     canvas.addEventListener('pointerup', e => {
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.pinch = null;
+      if (this.pinch) return; // 捏合中不触发选择
       if (e.button === 1) this.middleDrag = null;
       if (e.button !== 0) { this.mouse.down = false; return; }
       this.mouse.down = false;
@@ -197,6 +220,15 @@ export class InputController {
       } else if (this.dragStart) {
         this.clickSelect(this.mouse.wx, this.mouse.wy, e.shiftKey);
       }
+      this.dragStart = null;
+      this.dragging = false;
+    });
+
+    // P6 触屏：手指取消（系统手势打断）时清理多点状态
+    canvas.addEventListener('pointercancel', e => {
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.pinch = null;
+      this.mouse.down = false;
       this.dragStart = null;
       this.dragging = false;
     });
@@ -354,6 +386,31 @@ export class InputController {
     this.mouse.wx = w.x; this.mouse.wy = w.y;
   }
 
+  /** P6 捏合手势锚点：起始指距 / 起始缩放 / 起始中点世界坐标 */
+  private pinchStart() {
+    const [a, b] = [...this.pointers.values()];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    return {
+      dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      zoom: this.camera.zoom,
+      world: this.camera.screenToWorld(mid.x, mid.y, this.vw, this.vh),
+    };
+  }
+
+  /** P6 捏合更新：缩放 = 起始缩放 × 指距比，起始世界点跟随双指中点 */
+  private applyPinch() {
+    const pinch = this.pinch!;
+    const [a, b] = [...this.pointers.values()];
+    const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    this.camera.zoom = Math.max(this.camera.minZoom, Math.min(this.camera.maxZoom, pinch.zoom * dist / pinch.dist));
+    this.camera.x = pinch.world.x - (mid.x - this.vw / 2) / this.camera.zoom;
+    this.camera.y = pinch.world.y - (mid.y - this.vh / 2) / this.camera.zoom;
+    this.camera.clamp(this.vw, this.vh, this.game.map.w * TILE, this.game.map.h * TILE);
+    this.updateWorldPos();
+    if (this.placement) this.updateGhost();
+  }
+
   // ===== 选择 =====
   private pickAt(wx: number, wy: number): Entity | null {
     let best: Entity | null = null;
@@ -428,6 +485,7 @@ export class InputController {
     for (const s of this.selection) s.selected = false;
     this.selection = sel.slice(0, 48);
     for (const s of this.selection) s.selected = true;
+    if (this.selection.length > 0) audio.play('click'); // P6 选择音
     this.ui.syncSelection(this.selection);
   }
 
@@ -442,6 +500,7 @@ export class InputController {
     } else {
       recCmd('cast', unit.id, idx, null, null);
       unit.castSkill(this.game, idx);
+      audio.play('confirm');
     }
   }
 
@@ -457,6 +516,7 @@ export class InputController {
       recCmd('rally', b.id, wx, wy);
       this.ui.log(`${b.def.name} 集结点已设置`);
       this.ui.spawnRallyMarker(b, wx, wy);
+      audio.play('confirm');
       return;
     }
 
@@ -481,6 +541,7 @@ export class InputController {
         const n = units.filter(u => !u.canAir).length;
         if (n > 0) this.ui.log(`${n} 个地面近战单位无法攻击飞行目标`);
       }
+      audio.play('confirm');
       return;
     }
 
@@ -493,6 +554,7 @@ export class InputController {
         this.ord(u, { type: 'move', target: { x: wx, y: wy } });
       }
       this.flushOrds();
+      audio.play('confirm');
       return;
     }
     if (workers.length > 0 && !hit) {
@@ -500,7 +562,7 @@ export class InputController {
       const node = this.game.findNearestNode(wx, wy);
       if (node && Math.hypot(node.x - wx, node.y - wy) < TILE * 2.5) {
         for (const u of workers) this.ord(u, { type: 'gather', nodeId: node.id }, { gather: 'null' });
-        if (workers.length === units.length) { this.flushOrds(); return; }
+        if (workers.length === units.length) { this.flushOrds(); audio.play('confirm'); return; }
       }
     }
 
@@ -511,6 +573,7 @@ export class InputController {
     });
     this.flushOrds();
     this.ui.spawnMoveMarker(wx, wy);
+    audio.play('confirm');
   }
 
   private issueAttackMove(wx: number, wy: number) {
@@ -522,6 +585,7 @@ export class InputController {
     });
     this.flushOrds();
     this.ui.spawnMoveMarker(wx, wy, true);
+    audio.play('confirm');
   }
 
   /** P2 回城：最近己方已建成建筑 */
@@ -548,6 +612,7 @@ export class InputController {
     this.flushOrds();
     this.ui.spawnMoveMarker(wx, wy);
     this.ui.log('集合！');
+    audio.play('confirm');
   }
 
   /** P2 F 集火：点敌方单位全员攻击，点空地退化为攻击移动 */
@@ -568,6 +633,7 @@ export class InputController {
       this.flushOrds();
       this.ui.spawnMoveMarker(hit.x, hit.y, true);
       this.ui.log(`集火 ${hit.def.name}`);
+      audio.play('confirm');
     } else {
       // 点空地 → 攻击移动
       const targets = this.formation(wx, wy, units.length);
@@ -576,6 +642,7 @@ export class InputController {
       });
       this.flushOrds();
       this.ui.spawnMoveMarker(wx, wy, true);
+      audio.play('confirm');
     }
   }
 

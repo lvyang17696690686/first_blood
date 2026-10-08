@@ -137,6 +137,7 @@ export function updateScenario(g: Game, dt: number): boolean {
           g.units.push(u);
         });
         if (w.log) g.onLog(w.log);
+        g.onSound('wave'); // P6：波次来袭音效
       }
     }
   }

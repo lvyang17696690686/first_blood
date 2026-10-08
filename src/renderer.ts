@@ -14,6 +14,9 @@ interface Marker {
   ring: boolean;
 }
 
+/** P6 视野剔除用的世界坐标视口 */
+interface Viewport { x0: number; y0: number; x1: number; y1: number }
+
 export class Renderer {
   app = new Application();
   camera: Camera;
@@ -109,17 +112,25 @@ export class Renderer {
       this.viewH / 2 - cam.y * cam.zoom
     );
 
-    this.drawNodes();
-    this.drawEntities();
+    // P6 视野剔除：镜头视口的世界坐标范围（含余量）
+    const margin = 96;
+    const halfW = this.viewW / 2 / cam.zoom + margin;
+    const halfH = this.viewH / 2 / cam.zoom + margin;
+    const vp: Viewport = { x0: cam.x - halfW, y0: cam.y - halfH, x1: cam.x + halfW, y1: cam.y + halfH };
+
+    this.drawNodes(vp);
+    this.drawEntities(vp);
     this.drawFx(dt);
     this.drawFog();
     this.drawScreenOverlay(dt);
   }
 
-  private drawNodes() {
+  private drawNodes(vp: Viewport) {
     const g = this.nodeGfx;
     g.clear();
     for (const n of this.game.resourceNodes.values()) {
+      const nx0 = n.tx * TILE, ny0 = n.ty * TILE;
+      if (nx0 + n.w * TILE < vp.x0 || nx0 > vp.x1 || ny0 + n.h * TILE < vp.y0 || ny0 > vp.y1) continue;
       const cx = n.x, cy = n.y;
       const ratio = n.maxAmount > 0 ? n.amount / n.maxAmount : 0;
       if (n.amount <= 0) {
@@ -141,13 +152,14 @@ export class Renderer {
     }
   }
 
-  private drawEntities() {
+  private drawEntities(vp: Viewport) {
     const g = this.entityGfx;
     g.clear();
     const game = this.game;
 
     // P4：尸体（亡灵复苏素材，随时间渐隐）
     for (const c of game.corpses) {
+      if (c.x < vp.x0 || c.x > vp.x1 || c.y < vp.y0 || c.y > vp.y1) continue;
       const a = Math.min(1, c.timer / 5);
       const def = UNITS[c.defId];
       const r = def ? def.radius * 0.8 : 6;
@@ -161,6 +173,7 @@ export class Renderer {
       if (b.dead) continue;
       if (!game.sameTeam(b.faction, 0) && !b.seenBy[0]) continue;
       const x = b.tx * TILE, y = b.ty * TILE, w = b.w * TILE, h = b.h * TILE;
+      if (x + w < vp.x0 || x > vp.x1 || y + h < vp.y0 || y > vp.y1) continue; // P6 屏外剔除
       const base = b.faction === 0 ? b.def.color
         : b.faction === 2 ? b.def.color
         : game.sameTeam(b.faction, 0) ? mix(b.def.color, 0x3fb8c8, 0.35)
@@ -214,10 +227,14 @@ export class Renderer {
     for (const u of game.units) {
       if (u.dead) continue;
       if (!game.sameTeam(u.faction, 0) && !this.visibleUnit(u)) continue;
+      if (u.x < vp.x0 - 40 || u.x > vp.x1 + 40 || u.y < vp.y0 - 40 || u.y > vp.y1 + 40) continue; // P6 屏外剔除
       const r = u.radius;
       const fly = u.flying;
       const yo = fly ? -12 : 0; // 飞行悬浮偏移
-      const uy = u.y + yo;
+      // P6 行走起伏：地面单位移动时轻微正弦浮动（仅表现层）
+      const moving = !fly && u.path !== null && u.path.length > 0;
+      const bob = moving ? Math.sin(game.time * 11 + u.id * 1.7) * 1.3 : 0;
+      const uy = u.y + yo - bob;
       const col = u.faction === 0 ? u.def.color
         : u.faction === 2 ? u.def.color
         : game.sameTeam(u.faction, 0) ? mix(u.def.color, 0x3fb8c8, 0.3)
@@ -274,12 +291,14 @@ export class Renderer {
 
     // 弹道
     for (const p of game.projectiles) {
+      if (p.x < vp.x0 - 20 || p.x > vp.x1 + 20 || p.y < vp.y0 - 20 || p.y > vp.y1 + 20) continue;
       g.circle(p.x, p.y, 3).fill(p.color);
       g.circle(p.x, p.y, 5).stroke({ width: 1, color: p.color, alpha: 0.4 });
     }
 
     // P2：魔法球（浮动 + 闪烁）
     for (const o of game.orbs) {
+      if (o.x < vp.x0 - 20 || o.x > vp.x1 + 20 || o.y < vp.y0 - 20 || o.y > vp.y1 + 20) continue;
       const bob = Math.sin(game.time * 4 + o.id) * 3;
       const oy = o.y - 6 + bob;
       const col = o.type === 'haste' ? 0x66e0ff : o.type === 'frenzy' ? 0xff6644 : 0xffd34d;
@@ -352,12 +371,18 @@ export class Renderer {
     const fog = this.game.fog;
     const w = this.game.map.w, h = this.game.map.h;
     g.clear();
+    // P6 行程合并：同行连续同状态瓦片合并为单个矩形，减少路径/绘制调用
     for (let ty = 0; ty < h; ty++) {
-      for (let tx = 0; tx < w; tx++) {
+      let tx = 0;
+      while (tx < w) {
         const f = fog[ty * w + tx];
-        if (f === 2) continue;
-        g.rect(tx * TILE, ty * TILE, TILE, TILE)
-          .fill({ color: 0x05070c, alpha: f === 1 ? 0.45 : 0.94 });
+        let x2 = tx + 1;
+        while (x2 < w && fog[ty * w + x2] === f) x2++;
+        if (f !== 2) {
+          g.rect(tx * TILE, ty * TILE, (x2 - tx) * TILE, TILE)
+            .fill({ color: 0x05070c, alpha: f === 1 ? 0.45 : 0.94 });
+        }
+        tx = x2;
       }
     }
   }

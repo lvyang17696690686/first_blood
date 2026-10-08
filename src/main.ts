@@ -11,6 +11,7 @@ import { gameCtl, cycleSpeed } from './ctl';
 import { recStart, recStop, saveReplay, applyCmd } from './replay';
 import type { ReplayData } from './replay';
 import { setSeed } from './rng';
+import { audio } from './audio';
 import type { Deck, Faction, Race } from './types';
 
 /** P4：AI 随机可用种族 */
@@ -97,6 +98,22 @@ async function startGame(opts: StartOpts) {
 
   game.onLog = msg => ui.log(msg);
   game.onVictory = win => ui.showVictory(win);
+
+  // ===== P6 音频：解锁 + 命名音效接线 + 顶栏开关 =====
+  window.addEventListener('pointerdown', () => audio.unlock());
+  window.addEventListener('keydown', () => audio.unlock());
+  game.onSound = name => audio.play(name);
+  const elSound = document.getElementById('btn-sound') as HTMLButtonElement | null;
+  elSound?.addEventListener('click', () => {
+    audio.unlock();
+    elSound.textContent = audio.toggleMute() ? '🔇' : '🔊';
+  });
+  window.addEventListener('keydown', e => {
+    if (!e.repeat && e.key.toLowerCase() === 'm') {
+      audio.unlock();
+      if (elSound) elSound.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    }
+  });
   ui.hideLoading();
 
   // ===== P5-d 回放录制（全新对局才录，读档/回放不录） =====
@@ -121,6 +138,7 @@ async function startGame(opts: StartOpts) {
     if (data) saveReplay(data, game.time, game.over?.win ?? false);
   };
   game.onVictory = win => {
+    audio.play(win ? 'win' : 'lose'); // P6 胜负 stinger
     ui.showVictory(win);
     flushReplay(); // 胜负结算即保存回放
   };

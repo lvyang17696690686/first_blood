@@ -27,6 +27,7 @@ html, body {
 }
 #game-container canvas {
   display: block;
+  touch-action: none; /* P6 触屏：双指捏合交给游戏处理，禁用浏览器缩放/滚动 */
 }
 
 .hud {

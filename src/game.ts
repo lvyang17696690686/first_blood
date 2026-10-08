@@ -257,6 +257,8 @@ export class Game {
   private auraTimer = 0;
   onLog: (msg: string) => void = () => {};
   onVictory: (win: boolean) => void = () => {};
+  /** P6 音效钩子（表现层专用，不影响模拟确定性） */
+  onSound: (name: string) => void = () => {};
   private queryBuf: Entity[] = [];
   private queryBuf2: Entity[] = [];
   private nodeIdSeq = 1;
@@ -660,6 +662,7 @@ export class Game {
     this.buildings.push(b);
     this.map.blockRect(tx, ty, def.w, def.h, 2);
     if (builder) builder.order = { type: 'build', buildingId: b.id };
+    if (faction === 0) this.onSound('place');
     return b;
   }
 
@@ -689,6 +692,7 @@ export class Game {
       return false;
     }
     building.queue.push({ unitId, timer: def.buildTime, total: def.buildTime });
+    if (faction === 0) this.onSound('train');
     return true;
   }
 
@@ -710,7 +714,7 @@ export class Game {
 
   setTech(faction: Faction, to: 2 | 3) {
     this.factions[faction].tech = to;
-    if (faction === 0) this.onLog(`科技升级完成：${to} 本`);
+    if (faction === 0) { this.onLog(`科技升级完成：${to} 本`); this.onSound('tech'); }
   }
 
   // ===== P1 兵种科技 =====
@@ -804,7 +808,7 @@ export class Game {
   }
 
   onBuildingCompleted(b: Building) {
-    if (b.faction === 0) this.onLog(`${b.def.name} 建造完成`);
+    if (b.faction === 0) { this.onLog(`${b.def.name} 建造完成`); this.onSound('build'); }
   }
 
   // ===== 移动 =====
@@ -869,6 +873,7 @@ export class Game {
         dmg *= airDamageMult(source);
       }
     }
+    this.onSound('hit'); // P6 战斗命中音（audio 层节流）
     // 攻击方特性：闪现斩杀 > 暴击 / 攻城 / 减速
     if (source instanceof Unit) {
       const st = source.def.traits;
@@ -1545,7 +1550,10 @@ export class Game {
     if (type === 'haste') u.hasteTimer = BUFF_DURATION;
     else if (type === 'frenzy') u.frenzyTimer = BUFF_DURATION;
     else this.deposit(u.faction, GOLD_RAIN_AMOUNT);
-    if (this.sameTeam(u.faction, 0)) this.onLog(`拾取${names[type]}魔法球${type === 'goldrain' ? `（+${GOLD_RAIN_AMOUNT}金）` : ''}`);
+    if (this.sameTeam(u.faction, 0)) {
+      this.onLog(`拾取${names[type]}魔法球${type === 'goldrain' ? `（+${GOLD_RAIN_AMOUNT}金）` : ''}`);
+      this.onSound('orb');
+    }
     this.effects.push({ type: 'ring', x: u.x, y: u.y, radius: 20, life: 0.3, maxLife: 0.3, color: 0xb39bf5 });
   }
 
