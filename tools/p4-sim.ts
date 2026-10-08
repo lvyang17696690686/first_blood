@@ -270,11 +270,13 @@ const ARENA = { x: 400, y: 2050 };
 }
 
 // ================= 场景 E：三族两两平衡模拟 =================
-// 快模式：10 局 × 400s，约 2 分钟出结果（AI 对称运营 350s 后进入总攻期）
+// 快模式：10 局 × 560s，约 3 分钟出结果（AI 对称运营 350s 后进入总攻期）
 // 完整模式（--full）：30 局 × 480s，约 15 分钟，用于最终验证
 const FAST_MODE = !process.argv.includes('--full');
 const E_N = FAST_MODE ? 10 : 30;
-const E_LIMIT = FAST_MODE ? 400 : 480;
+// P6 回归修正：AI 对局节奏实测多在 300-500s 分出胜负，400s 上限会把将分胜负的对局截成平局，
+// 导致 E1 无死锁误报；560s 覆盖实测胜负区间（700s 实验中全部胜负 ≤505s）
+const E_LIMIT = FAST_MODE ? 560 : 480;
 console.log(`场景 E：三族两两平衡（每组 ${E_N} 局，上限 ${E_LIMIT}s，${FAST_MODE ? '快模式' : '完整模式'}）`);
 {
   const poolOf: Record<string, readonly string[]> = {
