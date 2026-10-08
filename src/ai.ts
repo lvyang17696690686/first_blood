@@ -132,9 +132,9 @@ export class AIController {
         ['barracks', this.count(rb.barracks) < 1],
         ['extractor', this.count(rb.extractor) < 1],
         ['barracks', this.count(rb.barracks) < 2],
+        ['extractor', this.count(rb.extractor) < 2], // 第二座 extractor 提前，保证 crystal 积累后再建 arcane
         ['arcane', f.tech >= 2 && this.count(rb.arcane) < 1],
         ['tower', this.count(rb.tower) < 1],
-        ['extractor', this.count(rb.extractor) < 2],
         ['tower', this.count(rb.tower) < 2 && f.crystal > 120],
         ['house', this.count(rb.house) < 10],
         ['barracks', this.count(rb.barracks) < 3],
