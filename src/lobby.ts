@@ -5,6 +5,8 @@ import {
 } from './config';
 import type { Deck, Race } from './types';
 import { SCENARIOS } from './scenario';
+import { loadReplayList } from './replay';
+import type { ReplayEntry } from './replay';
 
 const LS_KEY = 'wc_decks_v1';
 
@@ -34,7 +36,8 @@ export class Lobby {
   private onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void;
   private onContinue: (() => void) | null;
   private onCampaign: ((scenarioId: string) => void) | null;
-  private step: 'race' | 'deck' | 'campaign' = 'race';
+  private onReplay: ((data: ReplayEntry) => void) | null;
+  private step: 'race' | 'deck' | 'campaign' | 'replays' = 'race';
   private race: Race = 'elf';
   private teamSize: 1 | 2 | 3 = 1;
   private selectedUnits = new Set<string>();
@@ -44,10 +47,12 @@ export class Lobby {
     onStart: (deck: Deck, race: Race, teamSize: 1 | 2 | 3) => void,
     onContinue?: () => void,
     onCampaign?: (scenarioId: string) => void,
+    onReplay?: (data: ReplayEntry) => void,
   ) {
     this.onStart = onStart;
     this.onContinue = onContinue ?? null;
     this.onCampaign = onCampaign ?? null;
+    this.onReplay = onReplay ?? null;
     this.root = document.createElement('div');
     this.root.id = 'lobby';
     document.getElementById('app')!.appendChild(this.root);
@@ -90,6 +95,7 @@ export class Lobby {
         </div>
         ${this.onContinue ? '<button id="lobby-continue" class="lobby-btn continue">⏵ 继续上次游戏</button>' : ''}
         <button id="lobby-campaign" class="lobby-btn continue">⚔ 战役模式（PVE 5 关）</button>
+        <button id="lobby-replays" class="lobby-btn continue">🎬 观战回放</button>
       </div>`;
     const cont = this.root.querySelector('#lobby-continue');
     cont?.addEventListener('click', () => {
@@ -99,6 +105,8 @@ export class Lobby {
     });
     const camp = this.root.querySelector('#lobby-campaign');
     camp?.addEventListener('click', () => this.renderCampaign());
+    const reps = this.root.querySelector('#lobby-replays');
+    reps?.addEventListener('click', () => this.renderReplays());
     this.root.querySelectorAll('.mode-card').forEach(el => {
       el.addEventListener('click', () => {
         this.teamSize = Number((el as HTMLElement).dataset.mode) as 1 | 2 | 3;
@@ -141,6 +149,41 @@ export class Lobby {
         const cb = this.onCampaign;
         this.destroy();
         cb?.(id);
+      });
+    });
+  }
+
+  // ===== 回放列表（P5-d） =====
+  private renderReplays() {
+    this.step = 'replays';
+    const list = loadReplayList();
+    const raceName = (r: Race) => r === 'elf' ? '精灵' : r === 'blood' ? '血兽' : '亡灵';
+    this.root.innerHTML = `
+      <div class="lobby-card wide">
+        <h1>观战回放</h1>
+        <p class="lobby-sub">最近 ${list.length} 场对局 · 点击回放（可暂停/倍速）</p>
+        <div class="card-grid" style="justify-content:center">
+          ${list.length === 0 ? '<p class="lobby-sub" style="grid-column:1/-1">暂无回放——先打一局吧！</p>' : ''}
+          ${list.map((r, i) => `
+            <div class="deck-card rp-card" data-rp="${i}" style="width:230px">
+              <b>${r.header.name}</b>
+              <span>${raceName(r.header.races[0])} vs ${raceName(r.header.races[1] ?? 'elf')}${r.header.teamSize > 1 ? ` · ${r.header.teamSize}v${r.header.teamSize}` : ''}${r.header.scenario ? ' · 战役' : ''}</span>
+              <span>${r.win ? '<b style="color:#7dd87d">胜利</b>' : '<b style="color:#e07d7d">败北</b>'} · ${Math.floor(r.time / 60)}分${Math.floor(r.time % 60)}秒</span>
+            </div>`).join('')}
+        </div>
+        <div class="lobby-actions">
+          <button id="rp-back" class="lobby-btn">返回</button>
+        </div>
+      </div>`;
+    (this.root.querySelector('#rp-back') as HTMLButtonElement).addEventListener('click', () => this.renderRace());
+    this.root.querySelectorAll('.rp-card').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = Number((el as HTMLElement).dataset.rp);
+        const data = loadReplayList()[idx];
+        if (!data) return;
+        const cb = this.onReplay;
+        this.destroy();
+        cb?.(data);
       });
     });
   }

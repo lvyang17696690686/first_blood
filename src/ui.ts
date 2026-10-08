@@ -8,6 +8,8 @@ import type { Entity } from './entities';
 import type { InputController } from './input';
 import type { Renderer } from './renderer';
 import { traitLabels } from './traits';
+import { recCmd } from './replay';
+import type { OrdEntry } from './replay';
 
 const HOTKEYS: Record<string, string> = {
   house: 'Q', barracks: 'W', extractor: 'E', arcane: 'R', tower: 'T',
@@ -336,6 +338,11 @@ export class UI {
   }
 
   private renderCard(sel: Entity[]) {
+    // P5-d 回放模式：无指令卡
+    if (this.game.replayMode) {
+      this.elCard.innerHTML = '<div style="grid-column:1/-1;color:#8b97a5;font-size:12px;text-align:center;align-self:center">回放模式 · 指令不可用</div>';
+      return;
+    }
     this.elCard.innerHTML = '';
     const game = this.game;
     const afford = (g: number, c: number) => game.canAfford(0, g, c);
@@ -356,7 +363,7 @@ export class UI {
             maxed ? '攻/血已满级' : this.costText(cost, 0),
             undefined, def.color,
             maxed || !afford(cost, 0) || b0.research !== null,
-            () => game.startUnitTech(0, b0, uid)));
+            () => { recCmd('utex', b0.id, uid); game.startUnitTech(0, b0, uid); }));
         }
         this.elCard.appendChild(this.btn('返回训练', '', 'Esc', undefined, false, () => {
           this.techTab = false;
@@ -376,7 +383,7 @@ export class UI {
           this.costText(def.costGold, def.costCrystal),
           HOTKEYS[uid], def.color,
           !afford(def.costGold, def.costCrystal) || needTier || b0.techUpgrade !== null,
-          () => game.trainUnit(0, b0, uid)));
+          () => { recCmd('train', b0.id, uid); game.trainUnit(0, b0, uid); }));
       }
       // 兵种科技入口
       if (trains.some(uid => game.unitTechAvailable(uid))) {
@@ -389,11 +396,11 @@ export class UI {
           const up = TECH_UPGRADES[cur - 1];
           this.elCard.appendChild(this.btn(up.name, this.costText(up.costGold, up.costCrystal),
             'U', 0x9f7fff, !afford(up.costGold, up.costCrystal) || b0.techUpgrade !== null || b0.queue.length > 0,
-            () => game.startTechUpgrade(0, b0)));
+            () => { recCmd('techup', b0.id); game.startTechUpgrade(0, b0); }));
         }
       }
       this.elCard.appendChild(this.btn('停止训练', '', 'X', undefined, b0.queue.length === 0,
-        () => { b0.queue.shift(); }));
+        () => { recCmd('cancel', b0.id); b0.queue.shift(); }));
       return;
     }
 
@@ -436,7 +443,7 @@ export class UI {
           const cost = game.heroSkillCost(lv);
           this.elCard.appendChild(this.btn(`升级${sk.name}`, `Lv${lv}→${lv + 1} ${this.costText(cost, 0)}`,
             undefined, 0x9fd8ff, !afford(cost, 0),
-            () => game.upgradeHeroSkill(0, hero, i)));
+            () => { recCmd('hskill', hero.id, i); game.upgradeHeroSkill(0, hero, i); }));
         }
       });
     }
@@ -456,14 +463,22 @@ export class UI {
           `占领${isNode ? '金矿' : (capTarget as Building).def.name}`,
           st.ok ? this.costText(cost, 0) : st.reason,
           'C', 0xffd97a, !st.ok || !afford(cost, 0),
-          () => game.tryCapture(0, capTarget)));
+          () => { recCmd('capture', capTarget.id); game.tryCapture(0, capTarget); }));
       }
     }
     this.elCard.appendChild(this.btn('停止', '', 'S', undefined, false, () => {
-      for (const u of units) { u.order = { type: 'idle' }; u.resume = { type: 'idle' }; u.path = null; }
+      const entries: OrdEntry[] = units.map(u => {
+        u.order = { type: 'idle' }; u.resume = { type: 'idle' }; u.path = null;
+        return [u.id, u.order, u.resume, u.gather, 1] as OrdEntry;
+      });
+      recCmd('ords', entries);
     }));
     this.elCard.appendChild(this.btn('坚守', '', 'H', undefined, false, () => {
-      for (const u of units) u.order = { type: 'hold' };
+      const entries: OrdEntry[] = units.map(u => {
+        u.order = { type: 'hold' };
+        return [u.id, u.order, u.resume, u.gather, 0] as OrdEntry;
+      });
+      recCmd('ords', entries);
     }));
     if (hasWorker) {
       this.elCard.appendChild(this.btn('建造…', '', 'B', 0x66cc66, false, () => {

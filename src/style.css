@@ -391,6 +391,20 @@ html, body {
   cursor: pointer;
 }
 .ctrl-btn:hover { border-color: #ffd97a; color: #ffd97a; }
+/* P5-d 回放徽标 */
+#replay-badge {
+  position: fixed;
+  top: 64px;
+  right: 14px;
+  z-index: 40;
+  padding: 6px 16px;
+  border-radius: 8px;
+  background: rgba(12, 16, 26, 0.88);
+  border: 1px solid #7db8ff;
+  color: #7db8ff;
+  font-size: 13px;
+  pointer-events: none;
+}
 #pause-hint {
   position: fixed;
   top: 64px;

@@ -8,6 +8,7 @@ import { findPath } from './pathfinding';
 import type { Vec2 } from './types';
 import type { Game } from './game';
 import { canHitAir } from './traits';
+import { rand } from './rng';
 
 let nextEntityId = 1;
 export function resetEntityIds() { nextEntityId = 1; }
@@ -382,7 +383,7 @@ export class Unit extends Entity {
       this.fearTimer = Math.max(0, this.fearTimer - dt);
       this.fearDirTimer -= dt;
       if (this.fearDirTimer <= 0) {
-        this.fearDir = Math.random() * Math.PI * 2;
+        this.fearDir = rand() * Math.PI * 2;
         this.fearDirTimer = 0.25;
       }
       const fs = this.moveSpeed * 0.7 * dt;
@@ -431,7 +432,7 @@ export class Unit extends Entity {
     }
     this.acquireTimer -= dt;
     if (this.acquireTimer <= 0) {
-      this.acquireTimer = 0.3 + Math.random() * 0.2;
+      this.acquireTimer = 0.3 + rand() * 0.2;
       if (this.def.kind !== 'worker') {
         const t = this.acquireTarget(game);
         if (t) this.resume = { type: 'attack', targetId: t.id };
@@ -788,7 +789,7 @@ export interface MagicOrb {
 
 let nextOrbId = 1;
 export function makeOrb(type: OrbType, x: number, y: number): MagicOrb {
-  return { id: nextOrbId++, type, x, y, life: ORB_LIFE, phase: Math.random() * Math.PI * 2 };
+  return { id: nextOrbId++, type, x, y, life: ORB_LIFE, phase: rand() * Math.PI * 2 };
 }
 export function resetOrbIds() { nextOrbId = 1; }
 export function peekOrbId() { return nextOrbId; }

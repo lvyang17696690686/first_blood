@@ -14,6 +14,7 @@ import type { CreepDef } from './config';
 import type { Faction, HeroSkillDef, UnitDef, Deck, Race, Order } from './types';
 import type { ScenarioDef } from './scenario';
 import { SCENARIOS, applyScenarioSetup, updateScenario } from './scenario';
+import { rand } from './rng';
 import { GameMap } from './map';
 import {
   Unit, Building, makeResourceNode, resetNodeIds, resetEntityIds, resetOrbIds, makeOrb,
@@ -247,6 +248,10 @@ export class Game {
   reveals: { x: number; y: number; r: number; timer: number }[] = [];
   time = 0;
   over: null | { win: boolean } = null;
+  /** P5-d 已执行的模拟步数（回放指令定位用） */
+  stepCount = 0;
+  /** P5-d 回放模式：禁用玩家输入 */
+  replayMode = false;
   fogTimer = 0;
   /** 光环/治疗刷新计时 */
   private auraTimer = 0;
@@ -841,8 +846,8 @@ export class Game {
           px += (dx / d) * push;
           py += (dy / d) * push;
         } else if (d <= 0.001) {
-          px += (Math.random() - 0.5) * 0.2;
-          py += (Math.random() - 0.5) * 0.2;
+          px += (rand() - 0.5) * 0.2;
+          py += (rand() - 0.5) * 0.2;
         }
       }
       if (px !== 0 || py !== 0) {
@@ -872,7 +877,7 @@ export class Game {
           dmg *= st.blinkKill.mult;
           source.blinkBuff = 0;
           this.effects.push({ type: 'ring', x: target.x, y: target.y, radius: 22, life: 0.25, maxLife: 0.25, color: 0xc0c8ff });
-        } else if (st.crit && Math.random() < st.crit.chance) {
+        } else if (st.crit && rand() < st.crit.chance) {
           dmg *= st.crit.mult;
         }
         if (target instanceof Building && st.siege) dmg *= st.siege;
@@ -1027,8 +1032,8 @@ export class Game {
     // P2：野怪死亡掉落魔法球（boss 必掉）
     if (u.isCreep && killer && killer.faction !== 2) {
       const isBoss = u.def.id === 'boss';
-      if (isBoss || Math.random() < ORB_DROP_CHANCE) {
-        const roll = Math.random();
+      if (isBoss || rand() < ORB_DROP_CHANCE) {
+        const roll = rand();
         const type: OrbType = roll < 0.34 ? 'haste' : roll < 0.67 ? 'frenzy' : 'goldrain';
         this.orbs.push(makeOrb(type, u.x, u.y));
       }
@@ -1612,6 +1617,7 @@ export class Game {
   update(dt: number) {
     if (this.over) return;
     dt = STEP_DT;
+    this.stepCount++;
     this.time += dt;
     this.fogTimer -= dt;
 

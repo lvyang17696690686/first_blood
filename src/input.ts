@@ -4,8 +4,10 @@ import { Unit, Building } from './entities';
 import type { Entity } from './entities';
 import type { Renderer } from './renderer';
 import type { UI } from './ui';
-import type { Vec2 } from './types';
+import type { Vec2, Order } from './types';
 import { gameCtl, cycleSpeed } from './ctl';
+import { recCmd } from './replay';
+import type { OrdEntry } from './replay';
 
 export class Camera {
   x: number; y: number; // 屏幕中心对应的世界坐标
@@ -64,6 +66,22 @@ export class InputController {
   private lastClickTime = 0;
   private lastClickId = 0;
   private middleDrag: Vec2 | null = null;
+  /** P5-d 当前指令批次（录制中） */
+  private ordBatch: OrdEntry[] | null = null;
+
+  /** 应用并录制单位指令（live 与回放共用同一最终状态） */
+  private ord(u: Unit, order: Order, opts: { resume?: Order; gather?: 'null'; clearPath?: boolean } = {}) {
+    u.order = order;
+    if (opts.resume !== undefined) u.resume = opts.resume;
+    if (opts.gather === 'null') u.gather = null;
+    if (opts.clearPath) u.path = null;
+    this.ordBatch?.push([u.id, order, u.resume, u.gather, opts.clearPath ? 1 : 0]);
+  }
+  private beginOrds() { this.ordBatch = []; }
+  private flushOrds() {
+    if (this.ordBatch && this.ordBatch.length > 0) recCmd('ords', this.ordBatch);
+    this.ordBatch = null;
+  }
 
   constructor(game: Game, renderer: Renderer) {
     this.game = game;
@@ -91,6 +109,12 @@ export class InputController {
       this.mouse.down = true;
       this.mouse.button = e.button;
 
+      // P5-d 回放模式：只允许中键拖动镜头
+      if (this.game.replayMode) {
+        if (e.button === 1) { this.middleDrag = { x: e.offsetX, y: e.offsetY }; e.preventDefault(); }
+        return;
+      }
+
       if (e.button === 0) {
         if (this.placement) {
           this.tryPlace();
@@ -100,6 +124,7 @@ export class InputController {
           const { unit, idx } = this.skillPending;
           this.skillPending = null;
           this.ui.setCursor('');
+          recCmd('cast', unit.id, idx, this.mouse.wx, this.mouse.wy);
           unit.castSkillAt(this.game, idx, this.mouse.wx, this.mouse.wy);
           return;
         }
@@ -112,6 +137,7 @@ export class InputController {
         if (this.revealPending) {
           this.revealPending = false;
           this.ui.setCursor('');
+          recCmd('reveal', this.mouse.wx, this.mouse.wy);
           this.game.revealArea(this.mouse.wx, this.mouse.wy, 0);
           return;
         }
@@ -204,6 +230,13 @@ export class InputController {
   }
 
   private onKeyDown(k: string, e: KeyboardEvent) {
+    // P5-d 回放模式：仅允许暂停/倍速
+    if (this.game.replayMode) {
+      if (k === 'p') document.getElementById('btn-pause')?.click();
+      else if (k === '=' || k === '+') cycleSpeed();
+      else if (k === '-') gameCtl.speed = 1;
+      return;
+    }
     if (this.game.over) return;
     // 编队
     if (k >= '1' && k <= '9') {
@@ -228,20 +261,23 @@ export class InputController {
         }
         break;
       case 's': {
+        this.beginOrds();
         for (const s of this.selection) {
           if (s instanceof Unit && s.faction === 0) {
-            s.order = { type: 'idle' };
-            s.resume = { type: 'idle' };
-            s.path = null;
+            this.ord(s, { type: 'idle' }, { resume: { type: 'idle' }, clearPath: true });
           }
         }
+        this.flushOrds();
         break;
       }
-      case 'h':
+      case 'h': {
+        this.beginOrds();
         for (const s of this.selection) {
-          if (s instanceof Unit && s.faction === 0) s.order = { type: 'hold' };
+          if (s instanceof Unit && s.faction === 0) this.ord(s, { type: 'hold' });
         }
+        this.flushOrds();
         break;
+      }
       case 'b': {
         const worker = this.selection.find(s => s instanceof Unit && s.faction === 0 && s.def.kind === 'worker');
         if (worker) this.ui.toggleBuildTab();
@@ -252,10 +288,12 @@ export class InputController {
         // 回城：选中兵各自移动到最近己方建筑
         const units = this.selection.filter((s): s is Unit => s instanceof Unit && s.faction === 0 && s.def.kind !== 'worker');
         if (units.length === 0) break;
+        this.beginOrds();
         for (const u of units) {
           const b = this.nearestOwnBuilding(u.x, u.y);
-          if (b) { u.setDest(this.game, b.x, b.y + 40, { type: 'move', target: { x: b.x, y: b.y } }); u.resume = { type: 'idle' }; u.gather = null; }
+          if (b) this.ord(u, { type: 'move', target: { x: b.x, y: b.y } }, { resume: { type: 'idle' }, gather: 'null' });
         }
+        this.flushOrds();
         this.ui.log('回城：返回最近己方建筑');
         break;
       }
@@ -402,6 +440,7 @@ export class InputController {
       this.ui.setCursor('attack');
       this.ui.log(`选择${sk.name}的目标地点（右键取消）`);
     } else {
+      recCmd('cast', unit.id, idx, null, null);
       unit.castSkill(this.game, idx);
     }
   }
@@ -415,6 +454,7 @@ export class InputController {
     if (own.length === 1 && own[0] instanceof Building && (own[0] as Building).built) {
       const b = own[0] as Building;
       b.rally = { x: wx, y: wy };
+      recCmd('rally', b.id, wx, wy);
       this.ui.log(`${b.def.name} 集结点已设置`);
       this.ui.spawnRallyMarker(b, wx, wy);
       return;
@@ -423,6 +463,7 @@ export class InputController {
     const units = own.filter((s): s is Unit => s instanceof Unit);
     if (units.length === 0) return;
 
+    this.beginOrds();
     const hit = this.pickAt(wx, wy);
 
     // 攻击敌人（友军/队友单位 → 视为移动；飞行目标：不能对空的单位改为跟随移动）
@@ -430,14 +471,12 @@ export class InputController {
       const hitFlying = hit instanceof Unit && hit.flying;
       for (const u of units) {
         if (hitFlying && !u.canAir) {
-          u.order = { type: 'move', target: { x: hit.x, y: hit.y } };
-          u.resume = { type: 'idle' };
-          u.gather = null;
+          this.ord(u, { type: 'move', target: { x: hit.x, y: hit.y } }, { resume: { type: 'idle' }, gather: 'null' });
         } else {
-          u.order = { type: 'attack', targetId: hit.id };
-          u.resume = { type: 'idle' };
+          this.ord(u, { type: 'attack', targetId: hit.id }, { resume: { type: 'idle' } });
         }
       }
+      this.flushOrds();
       if (hitFlying) {
         const n = units.filter(u => !u.canAir).length;
         if (n > 0) this.ui.log(`${n} 个地面近战单位无法攻击飞行目标`);
@@ -449,44 +488,39 @@ export class InputController {
     const workers = units.filter(u => u.def.kind === 'worker');
     if (hit instanceof Building && hit.faction === 0 && !hit.built) {
       // 继续建造
-      for (const u of workers) u.order = { type: 'build', buildingId: hit.id };
+      for (const u of workers) this.ord(u, { type: 'build', buildingId: hit.id });
       for (const u of units.filter(u => u.def.kind !== 'worker')) {
-        u.order = { type: 'move', target: { x: wx, y: wy } };
+        this.ord(u, { type: 'move', target: { x: wx, y: wy } });
       }
+      this.flushOrds();
       return;
     }
     if (workers.length > 0 && !hit) {
       // 点在地上附近有金矿？直接采
       const node = this.game.findNearestNode(wx, wy);
       if (node && Math.hypot(node.x - wx, node.y - wy) < TILE * 2.5) {
-        for (const u of workers) {
-          u.order = { type: 'gather', nodeId: node.id };
-          u.gather = null;
-        }
-        if (workers.length === units.length) return;
+        for (const u of workers) this.ord(u, { type: 'gather', nodeId: node.id }, { gather: 'null' });
+        if (workers.length === units.length) { this.flushOrds(); return; }
       }
     }
 
     // 其余：移动（编队阵型偏移）
     const targets = this.formation(wx, wy, units.length);
     units.forEach((u, i) => {
-      if (u.def.kind === 'worker' && hit) {
-        // 工人点建筑/地面照常移动
-      }
-      u.order = { type: 'move', target: targets[i] };
-      u.resume = { type: 'idle' };
-      u.gather = null;
+      this.ord(u, { type: 'move', target: targets[i] }, { resume: { type: 'idle' }, gather: 'null' });
     });
+    this.flushOrds();
     this.ui.spawnMoveMarker(wx, wy);
   }
 
   private issueAttackMove(wx: number, wy: number) {
     const units = this.selection.filter((s): s is Unit => s instanceof Unit && s.faction === 0);
+    this.beginOrds();
     const targets = this.formation(wx, wy, units.length);
     units.forEach((u, i) => {
-      u.order = { type: 'attackMove', target: targets[i] };
-      u.resume = { type: 'idle' };
+      this.ord(u, { type: 'attackMove', target: targets[i] }, { resume: { type: 'idle' } });
     });
+    this.flushOrds();
     this.ui.spawnMoveMarker(wx, wy, true);
   }
 
@@ -506,12 +540,12 @@ export class InputController {
   private issueRally(wx: number, wy: number) {
     const units = this.selection.filter((s): s is Unit => s instanceof Unit && s.faction === 0);
     if (units.length === 0) return;
+    this.beginOrds();
     const targets = this.formation(wx, wy, units.length);
     units.forEach((u, i) => {
-      u.order = { type: 'move', target: targets[i] };
-      u.resume = { type: 'idle' };
-      u.gather = null;
+      this.ord(u, { type: 'move', target: targets[i] }, { resume: { type: 'idle' }, gather: 'null' });
     });
+    this.flushOrds();
     this.ui.spawnMoveMarker(wx, wy);
     this.ui.log('集合！');
   }
@@ -521,25 +555,26 @@ export class InputController {
     const units = this.selection.filter((s): s is Unit => s instanceof Unit && s.faction === 0 && s.def.kind !== 'worker');
     if (units.length === 0) return;
     const hit = this.pickAt(wx, wy);
+    this.beginOrds();
     if (hit && hit.faction !== 2 && !this.game.sameTeam(hit.faction, 0) && hit instanceof Unit) {
       const fly = hit.flying;
       for (const u of units) {
         if (fly && !u.canAir) {
-          u.order = { type: 'move', target: { x: hit.x, y: hit.y } };
+          this.ord(u, { type: 'move', target: { x: hit.x, y: hit.y } }, { resume: { type: 'idle' } });
         } else {
-          u.order = { type: 'attack', targetId: hit.id };
+          this.ord(u, { type: 'attack', targetId: hit.id }, { resume: { type: 'idle' } });
         }
-        u.resume = { type: 'idle' };
       }
+      this.flushOrds();
       this.ui.spawnMoveMarker(hit.x, hit.y, true);
       this.ui.log(`集火 ${hit.def.name}`);
     } else {
       // 点空地 → 攻击移动
       const targets = this.formation(wx, wy, units.length);
       units.forEach((u, i) => {
-        u.order = { type: 'attackMove', target: targets[i] };
-        u.resume = { type: 'idle' };
+        this.ord(u, { type: 'attackMove', target: targets[i] }, { resume: { type: 'idle' } });
       });
+      this.flushOrds();
       this.ui.spawnMoveMarker(wx, wy, true);
     }
   }
@@ -579,15 +614,19 @@ export class InputController {
   }
   private tryPlace() {
     if (!this.placement) return;
+    const defId = this.placement;
     const builder = this.selection.find(s => s instanceof Unit && s.faction === 0 && s.def.kind === 'worker') as Unit | undefined;
-    const b = this.game.placeBuilding(0, this.placement, this.ghostTx, this.ghostTy, builder);
+    const b = this.game.placeBuilding(0, defId, this.ghostTx, this.ghostTy, builder);
     if (b) {
+      recCmd('place', defId, this.ghostTx, this.ghostTy, builder ? builder.id : -1);
       // 其他选中的工人也帮忙
+      this.beginOrds();
       for (const s of this.selection) {
         if (s instanceof Unit && s !== builder && s.def.kind === 'worker') {
-          s.order = { type: 'build', buildingId: b.id };
+          this.ord(s, { type: 'build', buildingId: b.id });
         }
       }
+      this.flushOrds();
       this.ui.log(`${b.def.name} 开始建造`);
     }
     this.cancelPlacement();

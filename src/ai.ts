@@ -6,11 +6,12 @@ import type { Game } from './game';
 import type { Deck, Faction } from './types';
 import { Unit, Building } from './entities';
 import type { ResourceNode } from './entities';
+import { rand } from './rng';
 
 /** 随机生成一张精灵族卡组（AI 用）：保底圣殿武士 + 兵营池 3 + 科技所池 2 + 英雄 3 */
 export function randomElfDeck(): Deck {
   const pick = <T>(arr: readonly T[], n: number): T[] =>
-    arr.slice().sort(() => Math.random() - 0.5).slice(0, n);
+    arr.slice().sort(() => rand() - 0.5).slice(0, n);
   const barracksUnits = DECK_UNIT_POOL.slice(0, 8);      // 兵营系
   const arcaneUnits = DECK_UNIT_POOL.slice(8);           // 科技所系
   // 保底 1 本单位，避免 AI 前期无兵可出（与科技升级兵力门槛互锁）
@@ -23,7 +24,7 @@ export function randomElfDeck(): Deck {
 /** P3：随机生成一张血兽族卡组（AI 用）：保底血兽兵 + 兵营池 3 + 先知帐幕池 2 + 英雄 3 */
 export function randomBloodDeck(): Deck {
   const pick = <T>(arr: readonly T[], n: number): T[] =>
-    arr.slice().sort(() => Math.random() - 0.5).slice(0, n);
+    arr.slice().sort(() => rand() - 0.5).slice(0, n);
   const campUnits = DECK_UNIT_POOL_BLOOD.slice(0, 9);    // 兵营系
   const prophecyUnits = DECK_UNIT_POOL_BLOOD.slice(9);   // 先知帐幕系
   // 保底 1 本单位，避免 AI 前期无兵可出
@@ -36,7 +37,7 @@ export function randomBloodDeck(): Deck {
 /** P4：随机生成一张亡灵族卡组（AI 用）：保底骷髅先锋 + 埋骨地池 3 + 诅咒神殿池 2 + 英雄 3 */
 export function randomUndeadDeck(): Deck {
   const pick = <T>(arr: readonly T[], n: number): T[] =>
-    arr.slice().sort(() => Math.random() - 0.5).slice(0, n);
+    arr.slice().sort(() => rand() - 0.5).slice(0, n);
   const boneyardUnits = DECK_UNIT_POOL_UNDEAD.slice(0, 9);    // 埋骨地系
   const templeUnits = DECK_UNIT_POOL_UNDEAD.slice(9);         // 诅咒神殿系
   // 保底 1 本单位，避免 AI 前期无兵可出
@@ -192,7 +193,7 @@ export class AIController {
       if (b.queue.length > 0) continue;
       // 优先当前科技可训练的卡组单位；无则取卡组内任意单位（trainUnit 会按科技把关）
       const inDeckAny = BUILDINGS[rb.barracks].trains.filter(id => inDeck(id));
-      const pick = bpool.length > 0 ? bpool[(Math.random() * bpool.length) | 0] : inDeckAny[0];
+      const pick = bpool.length > 0 ? bpool[(rand() * bpool.length) | 0] : inDeckAny[0];
       if (!pick) continue;
       const udef = UNITS[pick];
       if (supplyLeft > 0 && this.afford(udef.costGold, udef.costCrystal)) {
@@ -209,11 +210,11 @@ export class AIController {
         if (heroCount === 0) {
           // 先召唤一名英雄
           const hp = apool.filter(id => UNITS[id].kind === 'hero');
-          if (hp.length > 0) pick = hp[(Math.random() * hp.length) | 0];
+          if (hp.length > 0) pick = hp[(rand() * hp.length) | 0];
         }
         if (!pick) {
           const np = apool.filter(id => UNITS[id].kind !== 'hero');
-          if (np.length > 0) pick = np[(Math.random() * np.length) | 0];
+          if (np.length > 0) pick = np[(rand() * np.length) | 0];
         }
         if (pick) {
           const udef = UNITS[pick];
@@ -233,7 +234,7 @@ export class AIController {
           this.deck.units.includes(id) && g.unitTechAvailable(id) &&
           g.unitTechLevel(this.faction, id) < UNIT_TECH_MAX);
         if (candidates.length > 0) {
-          g.startUnitTech(this.faction, lab, candidates[(Math.random() * candidates.length) | 0]);
+          g.startUnitTech(this.faction, lab, candidates[(rand() * candidates.length) | 0]);
         }
       }
       if (f.gold > 700) {
