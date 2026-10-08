@@ -268,14 +268,17 @@ const ARENA = { x: 400, y: 2050 };
 
 // ================= 场景 E：血兽 vs 精灵 20 局平衡 =================
 {
-  console.log('场景 E：血兽 vs 精灵 平衡模拟（30 局，上限 480 秒）');
+  const FAST_MODE = !process.argv.includes('--full');
+  const E_N = FAST_MODE ? 10 : 30;
+  const E_LIMIT = FAST_MODE ? 400 : 480;
+  console.log(`场景 E：血兽 vs 精灵 平衡模拟（${E_N} 局，上限 ${E_LIMIT}s，${FAST_MODE ? '快模式' : '完整模式'}）`);
   let elfWin = 0, bloodWin = 0, draw = 0;
   let deckOk = true;
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < E_N; i++) {
     const g = new Game({ races: ['elf', 'blood'] });
     const ai0 = new AIController(g, 0);
     const ai1 = new AIController(g, 1);
-    stepAI(g, 480, [ai0, ai1]);
+    stepAI(g, E_LIMIT, [ai0, ai1]);
     // 卡组合规抽查（首局）
     if (i === 0) {
       for (const f of [0, 1] as const) {

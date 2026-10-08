@@ -270,8 +270,13 @@ const ARENA = { x: 400, y: 2050 };
 }
 
 // ================= 场景 E：三族两两平衡模拟 =================
+// 快模式：10 局 × 400s，约 2 分钟出结果（AI 对称运营 350s 后进入总攻期）
+// 完整模式（--full）：30 局 × 480s，约 15 分钟，用于最终验证
+const FAST_MODE = !process.argv.includes('--full');
+const E_N = FAST_MODE ? 10 : 30;
+const E_LIMIT = FAST_MODE ? 400 : 480;
+console.log(`场景 E：三族两两平衡（每组 ${E_N} 局，上限 ${E_LIMIT}s，${FAST_MODE ? '快模式' : '完整模式'}）`);
 {
-  console.log('场景 E：三族两两平衡（每组 30 局，上限 480 秒）');
   const poolOf: Record<string, readonly string[]> = {
     elf: [...DECK_UNIT_POOL, ...DECK_HERO_POOL],
     blood: [...DECK_UNIT_POOL_BLOOD, ...DECK_HERO_POOL_BLOOD],
@@ -279,16 +284,17 @@ const ARENA = { x: 400, y: 2050 };
   };
   const names: Record<string, string> = { elf: '精灵', blood: '血兽', undead: '亡灵' };
   const pairs: Array<[string, string]> = [['elf', 'blood'], ['elf', 'undead'], ['blood', 'undead']];
-  const N = 30; // 与 P3 平衡模拟同口径
   let allDeckOk = true;
+  // 快模式下阈值同步调低
+  const DECIDED_MIN = FAST_MODE ? 4 : 10;
 
   for (const [ra, rb] of pairs) {
     let winA = 0, winB = 0, draw = 0;
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < E_N; i++) {
       const g = new Game({ races: [ra, rb] as never });
       const ai0 = new AIController(g, 0);
       const ai1 = new AIController(g, 1);
-      stepAI(g, 480, [ai0, ai1]);
+      stepAI(g, E_LIMIT, [ai0, ai1]);
       if (i === 0) {
         // 卡组合规抽查（首局）：双方出战单位均在各自卡池内
         for (const f of [0, 1] as const) {
@@ -307,7 +313,7 @@ const ARENA = { x: 400, y: 2050 };
     const decided = winA + winB;
     const label = `${names[ra]} vs ${names[rb]}`;
     console.log(`  ${label}: ${names[ra]}胜${winA} / ${names[rb]}胜${winB} / 平${draw}`);
-    check(`E1 ${label} 无死锁（≥10 局分出胜负）`, decided >= 10, `decided=${decided}`);
+    check(`E1 ${label} 无死锁（≥${DECIDED_MIN} 局分出胜负）`, decided >= DECIDED_MIN, `decided=${decided}`);
     // AI 平衡暂不调（先把游戏弄出来）：只查双向各 ≥1 胜，严格双向可赢留待后续 AI 迭代
     if (winA >= 2 && winB >= 2) check(`E2 ${label} 双向可赢`, true);
     else console.warn(`  WARN ${label} 弱方仅 ${winA < winB ? winA : winB} 胜，双向可赢待 AI 迭代`);
