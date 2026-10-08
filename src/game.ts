@@ -11,9 +11,12 @@ import {
   RACE_BUILDINGS, RACE_WORKER,
 } from './config';
 import type { CreepDef } from './config';
-import type { Faction, HeroSkillDef, UnitDef, Deck, Race } from './types';
+import type { Faction, HeroSkillDef, UnitDef, Deck, Race, Order } from './types';
 import { GameMap } from './map';
-import { Unit, Building, makeResourceNode, resetNodeIds, resetEntityIds, makeOrb, resetOrbIds } from './entities';
+import {
+  Unit, Building, makeResourceNode, resetNodeIds, resetEntityIds, resetOrbIds, makeOrb,
+  peekEntityId, setEntityIdSeq, peekNodeId, setNodeIdSeq, peekOrbId, setOrbIdSeq,
+} from './entities';
 import type { Entity, ResourceNode, MagicOrb, OrbType } from './entities';
 import { airDamageMult, canHitAir } from './traits';
 
@@ -51,6 +54,52 @@ export interface GameOptions {
   decks?: (Deck | null)[];
   /** P3 各阵营种族（null = 精灵默认） */
   races?: (Race | null)[];
+  /** P5 从存档恢复（跳过 setup） */
+  load?: SaveData;
+}
+
+// ===== P5 存档格式 =====
+export interface SaveUnit {
+  id: number; def: string; f: Faction;
+  /** 野怪/转化单位不在 UNITS 表，直接保存完整定义 */
+  defRaw?: UnitDef;
+  x: number; y: number; hp: number; mana: number; lvl: number; xp: number;
+  techLv: number; skillLv: number[];
+  order: Order; resume: Order;
+  gather: GatherStateLite | null;
+  shield: number; life: number; sumBy: number;
+  isCreep: boolean; leash?: [number, number];
+  bounty?: { gold: number; crystal: number; xp: number };
+  charm?: { t: number; orig: Faction | null } | null;
+}
+interface GatherStateLite { nodeId: number; phase: 'moving' | 'mining' | 'returning'; timer: number; carrying: number }
+export interface SaveBuilding {
+  id: number; def: string; f: Faction; tx: number; ty: number;
+  built: boolean; prog: number; hp: number;
+  queue: { unitId: string; timer: number; total: number }[];
+  tech: { to: 2 | 3; timer: number; total: number } | null;
+  research: { unitId: string; timer: number; total: number } | null;
+  rally: { x: number; y: number } | null;
+  seenBy: boolean[];
+}
+export interface SaveData {
+  v: 1;
+  time: number;
+  teamSize: number;
+  teams: number[];
+  races: Race[];
+  decks: (Deck | null)[];
+  factions: { gold: number; crystal: number; tech: 1 | 2 | 3; unitTech: Record<string, number> }[];
+  fog: number[];
+  units: SaveUnit[];
+  buildings: SaveBuilding[];
+  nodes: { id: number; tx: number; ty: number; amount: number; maxAmount: number; workers: number[];
+    depleted: boolean; owner: number; guarded: boolean; income: number }[];
+  camps: { x: number; y: number; size: 'small' | 'medium' | 'boss'; unitIds: number[]; alive: number; rt: number }[];
+  deadHeroes: { faction: Faction; defId: string; timer: number }[];
+  corpses: { x: number; y: number; defId: string; faction: Faction; timer: number }[];
+  orbs: { id: number; type: OrbType; x: number; y: number; life: number; phase: number }[];
+  seq: { e: number; n: number; o: number };
 }
 
 interface CreepCamp {
@@ -157,6 +206,12 @@ export class Game {
   decks: (Deck | null)[] = [null, null, null];
   /** P3 各阵营种族（0/1 玩家与 AI；野怪无种族） */
   races: Race[] = ['elf', 'elf'];
+  /** P5 队伍规模（1=1v1, 2=2v2, 3=3v3） */
+  teamSize = 1;
+  /** P5 阵营 → 队伍（0=玩家方 1=敌方 -1=野怪） */
+  teams: number[] = [0, 1, -1];
+  /** P5 阵营 → 地图出生点槽位索引 */
+  startSlot: number[] = [0, 1, 0];
   spatial = new SpatialHash();
   fog: Uint8Array;
   fogVersion = 0;
@@ -193,8 +248,9 @@ export class Game {
       }
     }
     this.fog = new Uint8Array(this.map.w * this.map.h);
-    this.setup();
-  }
+    if (options?.load) this.restoreFrom(options.load);
+    else this.setup();
+}
 
   // ===== 初始化 =====
   private setup() {
@@ -279,6 +335,142 @@ export class Game {
     }
     camp.aliveCount = camp.unitIds.length;
     this.creepCamps.push(camp);
+  }
+
+  // ===== P5 存档 =====
+  serialize(): string {
+    const d: SaveData = {
+      v: 1,
+      time: this.time,
+      teamSize: this.teamSize,
+      teams: [...this.teams],
+      races: [...this.races],
+      decks: this.decks.map(k => (k ? { units: [...k.units], heroes: [...k.heroes] } : null)),
+      factions: this.factions.map(f => ({ ...f, unitTech: { ...f.unitTech } })),
+      fog: Array.from(this.fog),
+      units: this.units.map(u => ({
+        id: u.id, def: u.def.id, f: u.faction,
+        defRaw: UNITS[u.def.id] ? undefined : u.def,
+        x: u.x, y: u.y, hp: u.hp, mana: u.mana, lvl: u.level, xp: u.xp,
+        techLv: u.techLevel, skillLv: [...u.skillLevels],
+        order: u.order, resume: u.resume,
+        gather: u.gather ? { ...u.gather } : null,
+        shield: u.shieldHp, life: u.lifespan, sumBy: u.summonedBy,
+        isCreep: u.isCreep,
+        leash: u.isCreep ? [u.leashX, u.leashY] : undefined,
+        bounty: u.isCreep ? { ...u.creepBounty } : undefined,
+        charm: u.charmedTimer > 0 ? { t: u.charmedTimer, orig: u.originalFaction } : null,
+      })),
+      buildings: this.buildings.map(b => ({
+        id: b.id, def: b.def.id, f: b.faction, tx: b.tx, ty: b.ty,
+        built: b.built, prog: b.buildProgress, hp: b.hp,
+        queue: b.queue.map(q => ({ ...q })),
+        tech: b.techUpgrade ? { ...b.techUpgrade } : null,
+        research: b.research ? { ...b.research } : null,
+        rally: b.rally ? { ...b.rally } : null,
+        seenBy: [...b.seenBy],
+      })),
+      nodes: [...this.resourceNodes.values()].map(n => ({
+        id: n.id, tx: n.tx, ty: n.ty, amount: n.amount, maxAmount: n.maxAmount,
+        workers: [...n.workers], depleted: n.depleted, owner: n.owner,
+        guarded: n.guarded, income: n.income,
+      })),
+      camps: this.creepCamps.map(c => ({
+        x: c.x, y: c.y, size: c.size, unitIds: [...c.unitIds], alive: c.aliveCount, rt: c.respawnTimer,
+      })),
+      deadHeroes: this.deadHeroes.map(h => ({ ...h })),
+      corpses: this.corpses.map(c => ({ ...c })),
+      orbs: this.orbs.map(o => ({ id: o.id, type: o.type, x: o.x, y: o.y, life: o.life, phase: o.phase })),
+      seq: { e: peekEntityId(), n: peekNodeId(), o: peekOrbId() },
+    };
+    return JSON.stringify(d);
+  }
+
+  private restoreFrom(d: SaveData) {
+    resetEntityIds(); resetNodeIds(); resetOrbIds();
+    this.teamSize = d.teamSize ?? 1;
+    this.teams = [...d.teams];
+    this.races = [...d.races];
+    this.decks = d.decks.map(k => (k ? { units: [...k.units], heroes: [...k.heroes] } : null));
+    this.factions = d.factions.map(f => ({ ...f, unitTech: { ...f.unitTech } }));
+    this.time = d.time;
+    // 单位
+    for (const su of d.units) {
+      const def = su.defRaw ?? UNITS[su.def];
+      if (!def) continue;
+      const u = new Unit(def, su.f, su.x, su.y);
+      u.id = su.id;
+      u.techLevel = su.techLv ?? 1;
+      u.level = su.lvl ?? 1;
+      u.xp = su.xp ?? 0;
+      u.maxHp = Math.round(u.baseMaxHp * u.heroScale * u.techMult);
+      u.hp = su.hp;
+      u.mana = su.mana;
+      if (su.skillLv && su.skillLv.length > 0) u.skillLevels = [...su.skillLv];
+      u.order = su.order; u.resume = su.resume;
+      u.gather = su.gather ? { ...su.gather } : null;
+      u.shieldHp = su.shield ?? 0;
+      u.lifespan = su.life ?? 0;
+      u.summonedBy = su.sumBy ?? 0;
+      u.isCreep = su.isCreep;
+      if (su.leash) { u.leashX = su.leash[0]; u.leashY = su.leash[1]; }
+      if (su.bounty) u.creepBounty = { ...su.bounty };
+      if (su.charm) { u.charmedTimer = su.charm.t; u.originalFaction = su.charm.orig; }
+      this.units.push(u);
+    }
+    // 建筑（重新阻挡地形）
+    for (const sb of d.buildings) {
+      const def = BUILDINGS[sb.def];
+      if (!def) continue;
+      const b = new Building(def, sb.f, sb.tx, sb.ty, sb.built);
+      b.id = sb.id;
+      b.buildProgress = sb.prog;
+      b.hp = sb.hp;
+      b.queue = sb.queue.map(q => ({ ...q }));
+      b.techUpgrade = sb.tech ? { ...sb.tech } : null;
+      b.research = sb.research ? { ...sb.research } : null;
+      b.rally = sb.rally ? { ...sb.rally } : null;
+      b.seenBy = [...sb.seenBy];
+      this.buildings.push(b);
+      this.map.blockRect(sb.tx, sb.ty, def.w, def.h, 2);
+    }
+    // 已被摧毁的主基地：取消生成时的占位阻挡
+    for (let f = 0 as Faction; f < this.factions.length; f = (f + 1) as Faction) {
+      if (f === 2) continue;
+      if (!this.buildings.some(b => b.faction === f && b.def.kind === 'main')) {
+        const sp = this.map.startPositions[this.startSlot[f] ?? f];
+        this.map.blockRect(Math.floor(sp.x / TILE) - 1, Math.floor(sp.y / TILE) - 1, 3, 3, 0);
+      }
+    }
+    // 资源节点
+    for (const sn of d.nodes) {
+      const n = makeResourceNode(sn.tx, sn.ty, sn.amount, 6);
+      n.id = sn.id;
+      n.maxAmount = sn.maxAmount;
+      n.workers = [...sn.workers];
+      n.depleted = sn.depleted;
+      n.owner = sn.owner as -1 | 0 | 1;
+      n.guarded = sn.guarded;
+      n.income = sn.income;
+      this.resourceNodes.set(n.id, n);
+    }
+    // 野怪营地
+    for (const sc of d.camps) {
+      this.creepCamps.push({
+        x: sc.x, y: sc.y, size: sc.size, unitIds: [...sc.unitIds],
+        aliveCount: sc.alive, respawnTimer: sc.rt,
+      });
+    }
+    this.deadHeroes = d.deadHeroes.map(h => ({ ...h }));
+    this.corpses = d.corpses.map(c => ({ ...c }));
+    for (const so of d.orbs) {
+      this.orbs.push({ id: so.id, type: so.type, x: so.x, y: so.y, life: so.life, phase: so.phase });
+    }
+    this.fog = new Uint8Array(d.fog);
+    setEntityIdSeq(d.seq.e);
+    setNodeIdSeq(d.seq.n);
+    setOrbIdSeq(d.seq.o);
+    this.updateFog(true);
   }
 
   // ===== 查询 =====

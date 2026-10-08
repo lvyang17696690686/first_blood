@@ -360,3 +360,31 @@ html, body {
 .lobby-btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .lobby-btn.small { font-size: 12px; padding: 6px 14px; }
 .lobby-btn.danger { color: #e07d7d; }
+
+/* ===== P5 顶栏控制 / 暂停提示 ===== */
+.ctrl-group { display: flex; gap: 6px; align-items: center; }
+.ctrl-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #4a5670;
+  background: #1b2334;
+  color: #cdd6e4;
+  cursor: pointer;
+}
+.ctrl-btn:hover { border-color: #ffd97a; color: #ffd97a; }
+#pause-hint {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 8px 22px;
+  border-radius: 8px;
+  background: rgba(12, 16, 26, 0.88);
+  border: 1px solid #ffd97a;
+  color: #ffd97a;
+  font-size: 14px;
+  pointer-events: none;
+}
+.lobby-btn.continue { display: block; margin: 22px auto 0; }

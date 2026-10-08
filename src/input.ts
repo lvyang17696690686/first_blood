@@ -5,6 +5,7 @@ import type { Entity } from './entities';
 import type { Renderer } from './renderer';
 import type { UI } from './ui';
 import type { Vec2 } from './types';
+import { gameCtl, cycleSpeed } from './ctl';
 
 export class Camera {
   x: number; y: number; // 屏幕中心对应的世界坐标
@@ -286,6 +287,17 @@ export class InputController {
         if (main) { this.camera.x = main.x; this.camera.y = main.y; }
         break;
       }
+      // ===== P5 暂停/倍速 =====
+      case 'p':
+        document.getElementById('btn-pause')?.click();
+        break;
+      case '=':
+      case '+':
+        cycleSpeed();
+        break;
+      case '-':
+        gameCtl.speed = 1;
+        break;
       case 'escape':
         if (this.placement) this.cancelPlacement();
         else if (this.skillPending) { this.skillPending = null; this.ui.setCursor(''); }

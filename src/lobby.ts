@@ -27,17 +27,19 @@ const RACES = [
   { id: 'undead', name: '亡灵族', desc: '不死亡灵军团：廉价海量、自爆、瘟疫与亡者复苏。', playable: true },
 ] as const;
 
-/** 出战卡组界面：主界面 → 选族 → 选卡 → 开战 */
+/** 出战卡组界面：主界面 → 选族 → 选卡 → 开战（P5：支持继续游戏） */
 export class Lobby {
   private root: HTMLDivElement;
   private onStart: (deck: Deck, race: Race) => void;
+  private onContinue: (() => void) | null;
   private step: 'race' | 'deck' = 'race';
   private race: Race = 'elf';
   private selectedUnits = new Set<string>();
   private selectedHeroes = new Set<string>();
 
-  constructor(onStart: (deck: Deck, race: Race) => void) {
+  constructor(onStart: (deck: Deck, race: Race) => void, onContinue?: () => void) {
     this.onStart = onStart;
+    this.onContinue = onContinue ?? null;
     this.root = document.createElement('div');
     this.root.id = 'lobby';
     document.getElementById('app')!.appendChild(this.root);
@@ -64,7 +66,14 @@ export class Lobby {
               ${r.playable ? '' : '<span class="soon">敬请期待</span>'}
             </div>`).join('')}
         </div>
+        ${this.onContinue ? '<button id="lobby-continue" class="lobby-btn continue">⏵ 继续上次游戏</button>' : ''}
       </div>`;
+    const cont = this.root.querySelector('#lobby-continue');
+    cont?.addEventListener('click', () => {
+      const cb = this.onContinue;
+      this.destroy();
+      cb?.();
+    });
     this.root.querySelectorAll('.race-card.playable, .race-card:not(.locked)').forEach(el => {
       el.addEventListener('click', () => {
         this.race = (el as HTMLElement).dataset.race as Race;

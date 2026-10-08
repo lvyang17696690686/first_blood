@@ -11,6 +11,9 @@ import { canHitAir } from './traits';
 
 let nextEntityId = 1;
 export function resetEntityIds() { nextEntityId = 1; }
+/** P5 存档：读档后恢复 id 序列 */
+export function peekEntityId() { return nextEntityId; }
+export function setEntityIdSeq(n: number) { nextEntityId = n; }
 
 // ===== 基类 =====
 export abstract class Entity {
@@ -768,6 +771,8 @@ export function makeResourceNode(tx: number, ty: number, amount: number, slots: 
   };
 }
 export function resetNodeIds() { nextNodeId = 1; }
+export function peekNodeId() { return nextNodeId; }
+export function setNodeIdSeq(n: number) { nextNodeId = n; }
 
 // ===== P2 魔法球 =====
 export type OrbType = 'haste' | 'frenzy' | 'goldrain';
@@ -786,3 +791,5 @@ export function makeOrb(type: OrbType, x: number, y: number): MagicOrb {
   return { id: nextOrbId++, type, x, y, life: ORB_LIFE, phase: Math.random() * Math.PI * 2 };
 }
 export function resetOrbIds() { nextOrbId = 1; }
+export function peekOrbId() { return nextOrbId; }
+export function setOrbIdSeq(n: number) { nextOrbId = n; }
